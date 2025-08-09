@@ -1,0 +1,24 @@
+import ollama
+from pyexpat.errors import messages
+
+from core.scrapper.web_scrapper import OllamaScrapper
+
+
+class OllamaUtils:
+
+    @classmethod
+    def list_downloaded_models(cls):
+        models = ollama.list()
+        for model in models['models']:
+            yield model
+
+    @classmethod
+    def list_all_models(cls):
+        status, message = OllamaScrapper()()
+
+        if status:
+            models_list = OllamaScrapper.list_all_models()
+            return models_list
+        else:
+            print(f"ollama site not reachable: {message}")
+            return False
