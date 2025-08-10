@@ -12,7 +12,7 @@ from core.ollama.ollama_commands import OllamaUtils
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI master")
+        self.setWindowTitle("Ollama Sentinel")
         self.setGeometry(100, 100, 1000, 600)
 
         self.sidebar = self.create_sidebar()
