@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer
 from ui.modal import ModelSelectionDialog
 from core.ollama.ollama_commands import OllamaUtils
+from core.utils.prompt_utils import PromptUtils
 
 
 class LoadingOverlay(QWidget):
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar = self.create_sidebar()
         self.main_panel = self.create_main_panel()
+        self.selected_folder = ""
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.sidebar)
@@ -41,7 +43,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # macOS-style title bar inside the frame
         titlebar = QWidget()
         titlebar.setFixedHeight(30)
         titlebar.setStyleSheet("background-color: #000000;")
@@ -215,6 +216,7 @@ class MainWindow(QMainWindow):
     def select_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder_path:
+            self.selected_folder = folder_path
             self.output_box.append(f"\n> Folder selected: {folder_path}")
 
     def generate_output(self):
@@ -222,12 +224,14 @@ class MainWindow(QMainWindow):
         structure = self.chk_structure.isChecked()
         all_files = self.chk_all_files.isChecked()
 
-        self.output_box.append("\n> Generating output with:")
-        self.output_box.append(f"> Prompt: {prompt}")
-        self.output_box.append(f"> Add structure: {structure}")
-        self.output_box.append(f"> All files: {all_files}")
-        self.output_box.append("> ... [Output generated] ...\n")
+        if (structure or all_files) and not self.selected_folder:
+            self.output_box.append("\n> Error: Please select a folder first!")
+            return
 
+        prompt_utils = PromptUtils(self.selected_folder)
+        final_result = prompt_utils.final_prompt(prompt, structure, all_files)
+
+        self.output_box.setPlainText(final_result)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

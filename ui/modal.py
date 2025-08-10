@@ -18,10 +18,9 @@ class ModelSelectionDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Titlebar with modern dark look
         titlebar = QWidget()
         titlebar.setFixedHeight(36)
-        titlebar.setStyleSheet("background-color: #121212;")  # very dark gray
+        titlebar.setStyleSheet("background-color: #121212;")
         titlebar_layout = QHBoxLayout()
         titlebar_layout.setContentsMargins(12, 0, 12, 0)
         titlebar_layout.setSpacing(8)
@@ -56,11 +55,10 @@ class ModelSelectionDialog(QDialog):
         titlebar_layout.addStretch()
         titlebar_layout.addWidget(title_label)
         titlebar_layout.addStretch()
-        titlebar_layout.addSpacing(14)  # symmetry with close button size
+        titlebar_layout.addSpacing(14)
         titlebar.setLayout(titlebar_layout)
         main_layout.addWidget(titlebar)
 
-        # Scroll area for model list
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll_content = QWidget()
