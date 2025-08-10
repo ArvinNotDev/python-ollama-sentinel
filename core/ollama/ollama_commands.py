@@ -25,4 +25,3 @@ class OllamaUtils:
             print(f"ollama site not reachable: {message}")
             return False
 
-print(OllamaUtils.list_all_models())
