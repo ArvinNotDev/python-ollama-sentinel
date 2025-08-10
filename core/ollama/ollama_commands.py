@@ -7,9 +7,12 @@ class OllamaUtils:
 
     @classmethod
     def list_downloaded_models(cls):
-        models = ollama.list()
-        for model in models['models']:
-            yield model
+        try:
+            models = ollama.list()
+            for model in models['models']:
+                yield model
+        except:
+            pass
 
     @classmethod
     def list_all_models(cls):
@@ -21,3 +24,5 @@ class OllamaUtils:
         else:
             print(f"ollama site not reachable: {message}")
             return False
+
+print(OllamaUtils.list_all_models())
