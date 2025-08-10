@@ -1,5 +1,4 @@
 import ollama
-from pyexpat.errors import messages
 
 from core.scrapper.web_scrapper import OllamaScrapper
 

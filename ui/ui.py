@@ -1,10 +1,12 @@
 import sys
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QCheckBox, QTextEdit,
-    QLineEdit, QSplitter, QListWidget, QSizePolicy
+    QLineEdit, QSplitter
 )
 from PyQt5.QtCore import Qt
+from ui.modal import ModelSelectionDialog
+from core.ollama.ollama_commands import OllamaUtils
 
 
 class MainWindow(QMainWindow):
@@ -73,17 +75,58 @@ class MainWindow(QMainWindow):
         self.output_box.setReadOnly(True)
         layout.addWidget(self.output_box)
 
+        btn_generate = QPushButton("Generate")
+        btn_generate.clicked.connect(self.generate_output)
+        layout.addWidget(btn_generate)
+
         panel.setLayout(layout)
         return panel
 
     def select_model(self):
-        model_path, _ = QFileDialog.getOpenFileName(self, "Select Model File")
-        if model_path:
-            self.output_box.append(f"Model selected: {model_path}")
+        overlay = QWidget(self)
+        overlay.setStyleSheet("background-color: rgba(0, 0, 0, 100);")
+        overlay.setGeometry(self.rect())
+        overlay.show()
+
+        models = OllamaUtils.list_downloaded_models()
+        model_data = {}
+
+        for m in models:
+            name = m.get("model", "<unknown>")
+            details = m.get("details", None)
+            if details and hasattr(details, "parameter_size"):
+                size = details.parameter_size
+            else:
+                size = "unknown"
+            model_data[name] = [size]
+
+        dialog = ModelSelectionDialog(self, model_data)
+        if dialog.exec_():
+            sel = f"{dialog.selected_model} – {dialog.selected_variant}"
+            self.output_box.append(f"Model selected: {sel}")
+
+        overlay.hide()
+        overlay.deleteLater()
 
     def select_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder_path:
             self.output_box.append(f"Folder selected: {folder_path}")
 
+    def generate_output(self):
+        prompt = self.prompt_input.text()
+        structure = self.chk_structure.isChecked()
+        all_files = self.chk_all_files.isChecked()
 
+        self.output_box.append("Generating output with:")
+        self.output_box.append(f"- Prompt: {prompt}")
+        self.output_box.append(f"- Add structure: {structure}")
+        self.output_box.append(f"- All files: {all_files}")
+        self.output_box.append("... [Output generated] ...\n")
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
