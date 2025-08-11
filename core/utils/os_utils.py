@@ -24,7 +24,7 @@ class OsUtils:
                     if e not in self.exclude_dirs
                 ])
             except PermissionError:
-                return
+                return  # skip inaccessible folders
 
             for i, entry in enumerate(entries):
                 full_path = os.path.join(path, entry)
