@@ -25,3 +25,13 @@ class OllamaUtils:
             print(f"ollama site not reachable: {message}")
             return False
 
+    @classmethod
+    def pull_model(cls, model_name: str):
+        try:
+            print(f"Pulling model: {model_name}...")
+            ollama.pull(model_name)
+            print(f"Model '{model_name}' downloaded successfully.")
+            return True
+        except Exception as e:
+            print(f"Failed to pull model '{model_name}': {e}")
+            return False
