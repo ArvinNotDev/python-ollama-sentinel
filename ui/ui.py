@@ -2,7 +2,7 @@ import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QCheckBox, QTextEdit,
-    QLineEdit, QSplitter
+    QLineEdit, QSplitter, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from ui.modal import ModelSelectionDialog
@@ -137,6 +137,14 @@ class MainWindow(QMainWindow):
         """)
         return sidebar
 
+    def show_error(self, message: str):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Critical)
+        msg.setWindowTitle("Error")
+        msg.setText(message)
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
+
     def create_main_panel(self):
         panel = QWidget()
         layout = QVBoxLayout()
@@ -188,17 +196,21 @@ class MainWindow(QMainWindow):
     def _select_model(self, overlay):
         models = OllamaUtils.list_downloaded_models()
         model_data = {}
-
-        for m in models:
-            name = m.get("model", "<unknown>")
-            details = m.get("details", None)
-            size = getattr(details, "parameter_size", "unknown") if details else "unknown"
-            model_data[name] = [size]
+        if models:
+            for m in models:
+                name = m.get("model", "<unknown>")
+                details = m.get("details", {})
+                size = details.get("parameter_size", "unknown")
+                summary = details.get("description", "No description")
+                model_data[name] = (size, summary)
+        else:
+            self.show_error("No models detected. \nMake sure you have the ollama running!")
+            return
 
         dialog = ModelSelectionDialog(self, model_data)
         if dialog.exec_():
-            sel = f"{dialog.selected_model} – {dialog.selected_variant}"
-            self.output_box.append(f"\n> Model selected: {sel}")
+            self.selected_model = dialog.selected_model
+            self.output_box.append(f"\n> Model selected: {dialog.selected_model} with {dialog.selected_variant}")
 
         overlay.deleteLater()
 
