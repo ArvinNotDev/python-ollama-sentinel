@@ -7,12 +7,13 @@ class OllamaUtils:
 
     @classmethod
     def list_downloaded_models(cls):
+        models = []
         try:
-            models = ollama.list()
-            for model in models['models']:
-                yield model
-        except:
-            pass
+            for model in ollama.list()['models']:
+                models.append(model)
+        except Exception as e:
+            print(e)
+        return models
 
     @classmethod
     def list_all_models(cls):
