@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt
 class ModelSelectionDialog(QDialog):
     def __init__(self, parent=None, model_data=None):
         super().__init__(parent)
-        self.setWindowTitle("Select Model to Download")
+        self.setWindowTitle("Select a model to use")
         self.setModal(True)
         self.setMinimumSize(600, 600)
 
@@ -41,7 +41,7 @@ class ModelSelectionDialog(QDialog):
         """)
         close_button.clicked.connect(self.reject)
 
-        title_label = QLabel("Select Model to Download")
+        title_label = QLabel(str(self.windowTitle()))
         title_label.setStyleSheet("""
             color: #39ff14;
             font-family: 'Consolas', monospace;
