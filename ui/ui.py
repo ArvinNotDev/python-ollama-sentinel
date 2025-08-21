@@ -48,6 +48,14 @@ class MainWindow(QMainWindow):
         self.sidebar = self.create_sidebar()
         self.main_panel = self.create_main_panel()
         self.selected_folder = ""
+        self.history = [
+            {
+                "role": "system",
+                "content": (
+                    "Your role is assistant. You are a model for coding and giving advice using files the user gives you. If the user asks for your name, you must say you are Ollama Sentinel."
+                )
+            }
+        ]
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.sidebar)
@@ -267,10 +275,12 @@ class MainWindow(QMainWindow):
             return
 
         prompt_utils = PromptUtils(self.selected_folder)
-        final_result = prompt_utils.final_prompt(prompt, structure, all_files)
+        final_prompt = prompt_utils.final_prompt(prompt, structure, all_files)
 
-        self.output_box.setPlainText(final_result)
+        # self.output_box.setPlainText(final_prompt)
 
+        response = OllamaUtils.send_message_to_model(self.selected_model, final_prompt, self.history)
+        self.output_box.setPlainText(response)
 
 
 

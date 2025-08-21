@@ -1,5 +1,4 @@
 import ollama
-
 from core.scrapper.web_scrapper import OllamaScrapper
 
 
@@ -18,7 +17,6 @@ class OllamaUtils:
     @classmethod
     def list_all_models(cls):
         status, message = OllamaScrapper()()
-
         if status:
             models_list = OllamaScrapper.list_all_models()
             return models_list
@@ -36,3 +34,13 @@ class OllamaUtils:
         except Exception as e:
             print(f"Failed to pull model '{model_name}': {e}")
             return False
+
+    @classmethod
+    def send_message_to_model(cls, model_name: str, prompt: str, history: list):
+        history.append({"role": "user", "content": prompt})
+        try:
+            response = ollama.chat(model=model_name, messages=history)
+            return response['message']['content']
+        except Exception as e:
+            print(f"Error chatting with model '{model_name}': {e}")
+            return None
