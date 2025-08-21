@@ -4,10 +4,25 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QFileDialog, QCheckBox, QTextEdit,
     QLineEdit, QSplitter
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from ui.modal import ModelSelectionDialog
 from core.ollama.ollama_commands import OllamaUtils
 from core.utils.prompt_utils import PromptUtils
+
+
+class PullModel(QThread):
+    finished_signal = pyqtSignal(str)
+
+    def __init__(self, model_name):
+        super().__init__()
+        self.model_name = model_name
+
+    def run(self):
+        try:
+            OllamaUtils.pull_model(self.model_name)
+            self.finished_signal.emit(f"\n> Model '{self.model_name}' downloaded successfully. ")
+        except Exception as e:
+            self.finished_signal.emit(f"\n> Error downloading model '{self.model_name}': {e}")
 
 
 class LoadingOverlay(QWidget):
@@ -187,6 +202,17 @@ class MainWindow(QMainWindow):
 
         overlay.deleteLater()
 
+    def pull_model(self, selected_model):
+        overlay = LoadingOverlay(self, f"Downloading the {selected_model} Model. ")
+        self.pull_thread = PullModel(selected_model)
+        self.pull_thread.finished_signal.connect(lambda msg: self.on_pull_model_finished(msg, overlay))
+        self.pull_thread.start()
+
+
+    def on_pull_model_finished(self, message, overlay):
+        overlay.deleteLater()
+        self.output_box.append(message)
+
     def download_model(self):
         overlay = LoadingOverlay(self, "Fetching available models...")
         QTimer.singleShot(100, lambda: self._download_model(overlay))
@@ -209,7 +235,7 @@ class MainWindow(QMainWindow):
         if dialog.exec_():
             sel = f"{dialog.selected_model} – {dialog.selected_variant}"
             self.output_box.append(f"\n> Downloading model: {sel}")
-            # TODO: Trigger actual download
+            self.pull_model(f"{dialog.selected_model}:{dialog.selected_variant}")
 
         overlay.deleteLater()
 
@@ -232,6 +258,9 @@ class MainWindow(QMainWindow):
         final_result = prompt_utils.final_prompt(prompt, structure, all_files)
 
         self.output_box.setPlainText(final_result)
+
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

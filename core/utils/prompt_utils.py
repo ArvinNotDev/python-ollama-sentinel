@@ -8,6 +8,10 @@ class PromptUtils:
     @classmethod
     def add_all_files_to_prompt(cls, prompt, all_files):
         for file in all_files:
+            if os.path.getsize(file) > 1000000:
+                prompt += f"\nfile: {file}\ncontains:\n<Skipped large file>\n" + "-" * 50 + "\n"
+                continue
+
             try:
                 with open(file, 'r', encoding='utf-8') as f:
                     content = f.read()
