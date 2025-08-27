@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
                 model_data[name] = (size, summary)
         else:
             self.show_error("No models detected. \nMake sure you have the ollama running!")
-            return
+            overlay.deleteLater()
 
         dialog = ModelSelectionDialog(self, model_data)
         if dialog.exec_():
