@@ -25,7 +25,7 @@ class PromptUtils:
     def add_files_structure_to_prompt(cls, prompt, structure_text):
         return prompt + f"\nproject structure:\n{structure_text}\n"
 
-    def final_prompt(self, user_prompt, include_structure=True, include_all_files=True):
+    def final_prompt(self, user_prompt, include_structure=False, include_all_files=False):
         final = ""
 
         if user_prompt:

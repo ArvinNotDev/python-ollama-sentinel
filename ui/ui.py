@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QFileDialog, QCheckBox, QTextEdit,
     QLineEdit, QSplitter, QMessageBox
 )
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QRect
 from ui.modal import ModelSelectionDialog
 from core.ollama.ollama_commands import OllamaUtils
 from core.utils.prompt_utils import PromptUtils
@@ -25,17 +25,39 @@ class PullModel(QThread):
             self.finished_signal.emit(f"\n> Error downloading model '{self.model_name}': {e}")
 
 
+class GenerateOutput(QThread):
+    finished_signal = pyqtSignal(str)
+
+    def __init__(self, model_name: str, prompt: str, history: list):
+        super().__init__()
+        self.model_name = model_name
+        self.prompt = prompt
+        self.history = history
+
+    def run(self):
+        try:
+            response = OllamaUtils.send_message_to_model(self.model_name, self.prompt, self.history)
+            if response is None:
+                response = "\n> No response (empty)."
+            self.finished_signal.emit(response)
+        except Exception as e:
+            self.finished_signal.emit(f"\n> Error while generating output: {e}")
+
+
 class LoadingOverlay(QWidget):
     def __init__(self, parent=None, text="Loading..."):
         super().__init__(parent)
-        self.setStyleSheet("background-color: rgba(0, 0, 0, 180);")
-        self.setGeometry(parent.rect())
+        # safe default if parent is None
+        if parent is not None:
+            self.setGeometry(parent.rect())
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignCenter)
         label = QLabel(text)
         label.setStyleSheet("color: #00FF00; font-size: 18px; font-weight: bold; font-family: Consolas;")
         layout.addWidget(label)
         self.setLayout(layout)
+        # semi-transparent dark overlay
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 180);")
         self.show()
 
 
@@ -48,6 +70,10 @@ class MainWindow(QMainWindow):
         self.sidebar = self.create_sidebar()
         self.main_panel = self.create_main_panel()
         self.selected_folder = ""
+        self.selected_model = None
+        self.pull_thread = None
+        self.generate_thread = None
+
         self.history = [
             {
                 "role": "system",
@@ -146,7 +172,7 @@ class MainWindow(QMainWindow):
         return sidebar
 
     def show_error(self, message: str):
-        msg = QMessageBox()
+        msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowTitle("Error")
         msg.setText(message)
@@ -188,10 +214,11 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(self.output_box)
 
-        btn_generate = QPushButton("Generate")
-        btn_generate.clicked.connect(self.generate_output)
-        btn_generate.setStyleSheet("padding: 10px; font-weight: bold; font-family: Consolas; background-color: #222; color: #00FF00; border: 1px solid #00FF00;")
-        layout.addWidget(btn_generate)
+        # IMPORTANT: store as self.btn_generate so other methods can access it
+        self.btn_generate = QPushButton("Generate")
+        self.btn_generate.clicked.connect(self.generate_output)
+        self.btn_generate.setStyleSheet("padding: 10px; font-weight: bold; font-family: Consolas; background-color: #222; color: #00FF00; border: 1px solid #00FF00;")
+        layout.addWidget(self.btn_generate)
 
         panel.setStyleSheet("background-color: #1e1e1e;")
         panel.setLayout(layout)
@@ -212,22 +239,21 @@ class MainWindow(QMainWindow):
                 summary = details.get("description", "No description")
                 model_data[name] = (size, summary)
         else:
-            self.show_error("No models detected. \nMake sure you have the ollama running!")
             overlay.deleteLater()
+            self.show_error("No models detected. \nMake sure you have the ollama running!")
+            return  # return early
 
         dialog = ModelSelectionDialog(self, model_data)
+        overlay.deleteLater()
         if dialog.exec_():
             self.selected_model = dialog.selected_model
             self.output_box.append(f"\n> Model selected: {dialog.selected_model} with {dialog.selected_variant}")
-
-        overlay.deleteLater()
 
     def pull_model(self, selected_model):
         overlay = LoadingOverlay(self, f"Downloading the {selected_model} Model. ")
         self.pull_thread = PullModel(selected_model)
         self.pull_thread.finished_signal.connect(lambda msg: self.on_pull_model_finished(msg, overlay))
         self.pull_thread.start()
-
 
     def on_pull_model_finished(self, message, overlay):
         overlay.deleteLater()
@@ -252,12 +278,11 @@ class MainWindow(QMainWindow):
             model_data[name] = [sizes, summary]
 
         dialog = ModelSelectionDialog(self, model_data)
+        overlay.deleteLater()
         if dialog.exec_():
             sel = f"{dialog.selected_model} – {dialog.selected_variant}"
             self.output_box.append(f"\n> Downloading model: {sel}")
             self.pull_model(f"{dialog.selected_model}:{dialog.selected_variant}")
-
-        overlay.deleteLater()
 
     def select_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -266,22 +291,42 @@ class MainWindow(QMainWindow):
             self.output_box.append(f"\n> Folder selected: {folder_path}")
 
     def generate_output(self):
-        prompt = self.prompt_input.text()
+        prompt = self.prompt_input.text().strip()
         structure = self.chk_structure.isChecked()
         all_files = self.chk_all_files.isChecked()
 
+        # validate
         if (structure or all_files) and not self.selected_folder:
             self.output_box.append("\n> Error: Please select a folder first!")
+            return
+
+        if not prompt:
+            # added explicit check for empty prompt
+            self.output_box.append("\n> Error: Prompt is empty!")
+            return
+
+        if not getattr(self, "selected_model", None):
+            self.output_box.append("\n> Error: Please select a model first!")
             return
 
         prompt_utils = PromptUtils(self.selected_folder)
         final_prompt = prompt_utils.final_prompt(prompt, structure, all_files)
 
-        # self.output_box.setPlainText(final_prompt)
+        # show overlay and start background generation
+        overlay = LoadingOverlay(self, "Generating response...")
+        self.btn_generate.setEnabled(False)
 
-        response = OllamaUtils.send_message_to_model(self.selected_model, final_prompt, self.history)
-        self.output_box.setPlainText(response)
+        self.generate_thread = GenerateOutput(self.selected_model, final_prompt, self.history)
+        self.generate_thread.finished_signal.connect(lambda resp: self.on_generate_finished(resp, overlay))
+        self.generate_thread.start()
 
+    def on_generate_finished(self, response: str, overlay: LoadingOverlay):
+        overlay.deleteLater()
+        self.btn_generate.setEnabled(True)
+        try:
+            self.output_box.setPlainText(response)
+        except Exception:
+            self.output_box.append(response)
 
 
 if __name__ == "__main__":
