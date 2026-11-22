@@ -62,6 +62,9 @@ class ThinkingIndicator(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         self._animations: list[QPropertyAnimation] = []
+        thinking_label = QLabel("Thinking", self)
+        thinking_label.setObjectName("ThinkingLabel")
+        layout.addWidget(thinking_label)
         for index in range(3):
             dot = QLabel("●", self)
             dot.setObjectName("ThinkingDot")
@@ -296,13 +299,20 @@ class ChatPage(QWidget):
                         {"source": "remote", "profile_id": profile["id"], "model_id": model_id},
                     )
         preferred = previous
-        if preferred is None and self.active_conversation:
-            preferred = self.active_conversation.get("model_selection")
+        saved_selection = (
+            self.active_conversation.get("model_selection") if self.active_conversation else None
+        )
+        if preferred is None:
+            preferred = saved_selection
+        matched_selection = False
         if preferred is not None:
             for index in range(self.model_combo.count()):
                 if self.model_combo.itemData(index) == preferred:
                     self.model_combo.setCurrentIndex(index)
+                    matched_selection = True
                     break
+        if saved_selection is not None and not matched_selection:
+            self.model_combo.setCurrentIndex(-1)
         self.model_combo.blockSignals(False)
         self.send_button.setEnabled(self.model_combo.count() > 0)
         self._update_model_hint()
@@ -647,18 +657,27 @@ class ChatPage(QWidget):
         messages = conversation.get("messages", [])
         self.history = messages if isinstance(messages, list) else []
         preferred = conversation.get("model_selection")
+        model_available = preferred is None
         if isinstance(preferred, dict):
             self.model_combo.blockSignals(True)
             for index in range(self.model_combo.count()):
                 if self.model_combo.itemData(index) == preferred:
                     self.model_combo.setCurrentIndex(index)
+                    model_available = True
                     break
+            if not model_available:
+                self.model_combo.setCurrentIndex(-1)
             self.model_combo.blockSignals(False)
         self.attachments.clear()
         self._render_attachments()
         self._render_conversation()
         self._update_model_hint()
-        self.hint.setText(f'Saved conversation · {len(self.history)} messages')
+        if not model_available and isinstance(preferred, dict):
+            self.hint.setText(
+                f'Saved model "{preferred.get("model_id", "unknown")}" is unavailable. Select a model to continue.'
+            )
+        else:
+            self.hint.setText(f'Saved conversation · {len(self.history)} messages')
         self._emit_conversations_changed()
         return True
 
