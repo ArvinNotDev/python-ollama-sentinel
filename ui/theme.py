@@ -78,12 +78,20 @@ QPushButton#ComposerPlusButton {
 }
 QPushButton#ComposerPlusButton:hover { background: #303030; }
 QPushButton#ComposerThinkButton {
-    color: #8EAFE8; background: #202631; border: 1px solid #2E405E;
+    color: #BEC4CE; background: transparent; border: 1px solid transparent;
     border-radius: 18px; padding: 5px 11px; min-height: 22px; font-weight: 600;
 }
-QPushButton#ComposerThinkButton:hover { color: #B4CCF5; background: #293345; border-color: #40577A; }
+QPushButton#ComposerThinkButton:hover {
+    color: #F0F2F6; background: #2B3038; border-color: #3B424D;
+}
 QPushButton#ComposerThinkButton:checked {
-    color: #C5D9FF; background: #2A3C59; border-color: #5276A8;
+    color: #C8DCFF; background: #263B58; border-color: #45658E;
+}
+QPushButton#ComposerThinkButton:disabled {
+    color: #5D636E; background: transparent; border-color: transparent;
+}
+QPushButton#ComposerThinkButton:checked:disabled {
+    color: #B7CDEB; background: #26364B; border-color: #415A78;
 }
 QComboBox#ThinkLevelPicker {
     color: #C6D5F0; background: #252D3A; border: 1px solid #3A4B67;
@@ -196,16 +204,26 @@ QPushButton#AttachmentRemoveButton {
     padding: 2px; min-height: 16px;
 }
 QPushButton#AttachmentRemoveButton:hover { color: #FFFFFF; background: #414754; }
-QPushButton#ThinkingHeader {
-    color: #C8BFF0; background: transparent; border: none; text-align: left;
-    padding: 4px 2px; min-height: 16px;
+QFrame#ThinkingPanel {
+    background: #1E232B; border: 1px solid #333C49; border-radius: 13px;
 }
-QPushButton#ThinkingHeader:hover { color: #F0EBFF; background: transparent; }
-QLabel#ThinkingDot { color: #C4B8F0; font-size: 8px; background: transparent; }
-QLabel#ThinkingLabel { color: #BFB5E7; font-size: 11px; font-weight: 600; background: transparent; }
+QPushButton#ThinkingHeader {
+    color: #D4DCE8; background: transparent; border: none;
+    border-radius: 8px; text-align: left; padding: 5px 7px;
+    min-height: 22px; font-weight: 650;
+}
+QPushButton#ThinkingHeader:hover { color: #FFFFFF; background: #2A303A; }
+QLabel#ThinkingStatus {
+    color: #8FA9D0; background: #273447; border: 1px solid #374C69;
+    border-radius: 8px; padding: 3px 7px; font-size: 9px;
+    font-weight: 750; letter-spacing: 0.7px;
+}
+QLabel#ThinkingDot { color: #AFC6EB; font-size: 8px; background: transparent; }
 QTextBrowser#ThinkingBody {
-    color: #ADB4C1; background: #20242B; border: 1px solid #343A45;
-    border-radius: 10px; padding: 8px 10px;
+    color: #C1C9D5; background: #191E25; border: 1px solid #303946;
+    border-radius: 10px; padding: 10px 12px;
+    selection-background-color: #405779; selection-color: #FFFFFF;
+    font-size: 12px;
 }
 QListWidget#ChatHistoryList {
     color: #DDE0E7; background: transparent; border: none; outline: none;
