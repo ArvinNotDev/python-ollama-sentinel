@@ -55,6 +55,19 @@ class OllamaClientTests(unittest.TestCase):
         client.session.post.assert_not_called()
         client.close()
 
+    def test_chat_stream_sends_images_and_think_control(self):
+        client = OllamaClient()
+        client.session.post = MagicMock(return_value=FakeResponse([
+            json.dumps({"message": {"thinking": "Let me reason.", "content": "The answer."}, "done": True})
+        ]))
+        messages = [{"role": "user", "content": "What is in this image?", "images": ["aGVsbG8="]}]
+        events = list(client.chat_stream("vision-model", messages, {"temperature": 0.7}, think=True))
+        body = client.session.post.call_args.kwargs["json"]
+        self.assertTrue(body["think"])
+        self.assertEqual(body["messages"][0]["images"], ["aGVsbG8="])
+        self.assertEqual(events[0]["message"]["thinking"], "Let me reason.")
+        client.close()
+
     def test_api_error_is_raised(self):
         with self.assertRaises(OllamaError):
             OllamaClient._raise_for_api_error({"error": "model not found"})

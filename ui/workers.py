@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 
 from core.ollama.ollama_commands import OllamaClient
+from core.ollama.library import OllamaLibraryClient
 from core.providers import RemoteProviderClient
 from core.speech.whisper_manager import WhisperModelManager
 
@@ -92,12 +94,14 @@ class OllamaModelTagsWorker(QThread):
 
 class ChatWorker(QThread):
     chunk = Signal(str)
+    thinking_chunk = Signal(str)
     completed = Signal(dict)
     failed = Signal(str)
 
     def __init__(
-        self, endpoint: str, model_name: str, messages: list[dict[str, str]],
-        temperature: float, remote_profile: dict[str, Any] | None = None, api_key: str = "",
+        self, endpoint: str, model_name: str, messages: list[dict[str, Any]],
+        temperature: float, remote_profile: dict[str, Any] | None = None,
+        api_key: str = "", think: bool | str | None = None,
     ) -> None:
         super().__init__()
         self.endpoint = endpoint
@@ -106,6 +110,7 @@ class ChatWorker(QThread):
         self.temperature = temperature
         self.remote_profile = remote_profile
         self.api_key = api_key
+        self.think = think
 
     def run(self) -> None:
         final_event: dict[str, Any] = {}
@@ -120,12 +125,24 @@ class ChatWorker(QThread):
                 finally:
                     client.close()
                 return
+            ollama_messages = []
+            for message in self.messages:
+                item = {"role": message.get("role", "user"), "content": message.get("content", "")}
+                images = message.get("images") or []
+                if images:
+                    item["images"] = [image.get("data", "") if isinstance(image, dict) else image for image in images]
+                ollama_messages.append(item)
             client = OllamaClient(self.endpoint, timeout=30)
             try:
                 for event in client.chat_stream(
-                    self.model_name, self.messages, {"temperature": self.temperature}
+                    self.model_name, ollama_messages,
+                    {"temperature": self.temperature}, think=self.think,
                 ):
-                    content = event.get("message", {}).get("content", "")
+                    message = event.get("message", {}) or {}
+                    thinking = message.get("thinking", "")
+                    content = message.get("content", "")
+                    if thinking:
+                        self.thinking_chunk.emit(thinking)
                     if content:
                         self.chunk.emit(content)
                     if event.get("done"):
@@ -135,6 +152,25 @@ class ChatWorker(QThread):
                 client.close()
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class ModelCapabilitiesWorker(QThread):
+    loaded = Signal(str, dict)
+    failed = Signal(str, str)
+
+    def __init__(self, endpoint: str, model_name: str, parent=None) -> None:
+        super().__init__(parent)
+        self.endpoint = endpoint
+        self.model_name = model_name
+
+    def run(self) -> None:
+        client = OllamaClient(self.endpoint, timeout=12)
+        try:
+            self.loaded.emit(self.model_name, client.show_model(self.model_name))
+        except Exception as exc:
+            self.failed.emit(self.model_name, str(exc))
+        finally:
+            client.close()
 
 
 class ModelListWorker(QThread):

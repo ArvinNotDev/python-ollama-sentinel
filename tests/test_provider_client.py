@@ -91,6 +91,23 @@ class RemoteProviderTests(unittest.TestCase):
             "https://api.openai.com/v1/chat/completions",
         )
 
+    def test_openai_image_is_serialized_as_data_url(self):
+        session = MagicMock()
+        session.request.return_value = FakeResponse(lines=["data: [DONE]"])
+        client = RemoteProviderClient(
+            {"provider": "openai", "base_url": "https://api.openai.com/v1"},
+            "secret", session=session,
+        )
+        messages = [{
+            "role": "user", "content": "Describe this.",
+            "images": [{"mime_type": "image/png", "data": "aGVsbG8=", "name": "sample.png"}],
+        }]
+        list(client.chat_stream("gpt-4o", messages))
+        payload = session.request.call_args.kwargs["json"]
+        image_part = payload["messages"][0]["content"][1]
+        self.assertEqual(image_part["type"], "image_url")
+        self.assertEqual(image_part["image_url"]["url"], "data:image/png;base64,aGVsbG8=")
+
     def test_anthropic_stream_extracts_text_delta(self):
         session = MagicMock()
         session.request.return_value = FakeResponse(lines=[
@@ -106,6 +123,24 @@ class RemoteProviderTests(unittest.TestCase):
         )
         self.assertEqual(session.request.call_args.args[1], "https://api.anthropic.com/v1/messages")
 
+    def test_anthropic_image_is_serialized_as_base64_block(self):
+        session = MagicMock()
+        session.request.return_value = FakeResponse(lines=[])
+        client = RemoteProviderClient(
+            {"provider": "anthropic", "base_url": "https://api.anthropic.com"},
+            "secret", session=session,
+        )
+        messages = [{
+            "role": "user", "content": "Describe this.",
+            "images": [{"mime_type": "image/jpeg", "data": "aGVsbG8=", "name": "sample.jpg"}],
+        }]
+        list(client.chat_stream("claude-sonnet-x", messages))
+        payload = session.request.call_args.kwargs["json"]
+        image_part = payload["messages"][0]["content"][1]
+        self.assertEqual(image_part["type"], "image")
+        self.assertEqual(image_part["source"]["media_type"], "image/jpeg")
+        self.assertEqual(image_part["source"]["data"], "aGVsbG8=")
+
     def test_gemini_stream_extracts_text(self):
         session = MagicMock()
         session.request.return_value = FakeResponse(lines=[
@@ -119,6 +154,23 @@ class RemoteProviderTests(unittest.TestCase):
             list(client.chat_stream("gemini-test", [{"role": "user", "content": "hi"}])),
             ["Gemini"],
         )
+
+    def test_gemini_image_is_serialized_as_inline_data(self):
+        session = MagicMock()
+        session.request.return_value = FakeResponse(lines=[])
+        client = RemoteProviderClient(
+            {"provider": "google", "base_url": "https://generativelanguage.googleapis.com/v1beta"},
+            "secret", session=session,
+        )
+        messages = [{
+            "role": "user", "content": "Describe this.",
+            "images": [{"mime_type": "image/webp", "data": "aGVsbG8=", "name": "sample.webp"}],
+        }]
+        list(client.chat_stream("gemini-test", messages))
+        payload = session.request.call_args.kwargs["json"]
+        image_part = payload["contents"][0]["parts"][1]["inlineData"]
+        self.assertEqual(image_part["mimeType"], "image/webp")
+        self.assertEqual(image_part["data"], "aGVsbG8=")
 
     def test_api_key_is_required_for_official_providers(self):
         with self.assertRaises(ProviderError):

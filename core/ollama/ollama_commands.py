@@ -122,11 +122,17 @@ class OllamaClient:
             raise OllamaError(f"Could not remove {model_name}: {exc}") from exc
 
     def chat_stream(
-        self, model_name: str, messages: list[dict[str, str]], options: dict[str, Any] | None = None
+        self,
+        model_name: str,
+        messages: list[dict[str, Any]],
+        options: dict[str, Any] | None = None,
+        think: bool | str | None = None,
     ) -> Iterator[dict[str, Any]]:
         body: dict[str, Any] = {"model": model_name, "messages": messages, "stream": True}
         if options:
             body["options"] = options
+        if think is not None:
+            body["think"] = think
         try:
             with self.session.post(
                 self._url("/api/chat"), json=body, stream=True, timeout=(10, None)

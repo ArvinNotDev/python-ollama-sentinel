@@ -110,6 +110,29 @@ QListWidget#ModelCatalogList::item:selected {
     background: #343049;
     border: 1px solid #4A4263;
 }
+QScrollArea#AttachmentStrip { background: transparent; border: none; }
+QFrame#AttachmentChip {
+    color: #DDE0E7; background: #292E37; border: 1px solid #3C424E; border-radius: 10px;
+}
+QLabel#AttachmentChipName { color: #DDE0E7; background: transparent; }
+QLabel#AttachmentMessageChip {
+    color: #C7C0E9; background: #2E2A3D; border: 1px solid #423B58;
+    border-radius: 8px; padding: 5px 9px;
+}
+QPushButton#AttachmentRemoveButton {
+    color: #AAB1BE; background: transparent; border: none; border-radius: 8px;
+    padding: 2px; min-height: 16px;
+}
+QPushButton#AttachmentRemoveButton:hover { color: #FFFFFF; background: #414754; }
+QPushButton#ThinkingHeader {
+    color: #C8BFF0; background: transparent; border: none; text-align: left;
+    padding: 4px 2px; min-height: 16px;
+}
+QPushButton#ThinkingHeader:hover { color: #F0EBFF; background: transparent; }
+QLabel#ThinkingBody {
+    color: #ADB4C1; background: #20242B; border: 1px solid #343A45;
+    border-radius: 10px; padding: 10px 12px;
+}
 """
 
 

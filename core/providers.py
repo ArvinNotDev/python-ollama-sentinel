@@ -150,7 +150,7 @@ class RemoteProviderClient:
                     raise ProviderError(str(error))
                 yield event
 
-    def chat_stream(self, model: str, messages: list[dict[str, str]], temperature: float = 0.7) -> Iterator[str]:
+    def chat_stream(self, model: str, messages: list[dict[str, Any]], temperature: float = 0.7) -> Iterator[str]:
         if self.protocol == "anthropic":
             yield from self._chat_anthropic(model, messages, temperature)
         elif self.protocol == "gemini":
@@ -158,10 +158,35 @@ class RemoteProviderClient:
         else:
             yield from self._chat_openai(model, messages, temperature)
 
-    def _chat_openai(self, model: str, messages: list[dict[str, str]], temperature: float) -> Iterator[str]:
+    @staticmethod
+    def _openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for message in messages:
+            item: dict[str, Any] = {
+                "role": message.get("role", "user"),
+                "content": message.get("content", ""),
+            }
+            images = message.get("images") or []
+            if images:
+                parts = []
+                if item["content"]:
+                    parts.append({"type": "text", "text": item["content"]})
+                for image in images:
+                    parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f'data:{image["mime_type"]};base64,{image["data"]}',
+                            "detail": "auto",
+                        },
+                    })
+                item["content"] = parts
+            result.append(item)
+        return result
+
+    def _chat_openai(self, model: str, messages: list[dict[str, Any]], temperature: float) -> Iterator[str]:
         response = self._request(
             "POST", "/chat/completions",
-            json={"model": model, "messages": messages, "temperature": temperature, "stream": True},
+            json={"model": model, "messages": self._openai_messages(messages), "temperature": temperature, "stream": True},
             stream=True, timeout=(10, None), headers={"Content-Type": "application/json"},
         )
         with response:
@@ -175,12 +200,27 @@ class RemoteProviderClient:
                             if isinstance(part, dict) and isinstance(part.get("text"), str):
                                 yield part["text"]
 
-    def _chat_anthropic(self, model: str, messages: list[dict[str, str]], temperature: float) -> Iterator[str]:
+    def _chat_anthropic(self, model: str, messages: list[dict[str, Any]], temperature: float) -> Iterator[str]:
         system_parts = [item["content"] for item in messages if item.get("role") == "system"]
-        conversation = [
-            {"role": item.get("role", "user"), "content": item.get("content", "")}
-            for item in messages if item.get("role") != "system"
-        ]
+        conversation = []
+        for item in messages:
+            if item.get("role") == "system":
+                continue
+            content: Any = item.get("content", "")
+            images = item.get("images") or []
+            if images:
+                blocks = [{"type": "text", "text": content}] if content else []
+                for image in images:
+                    blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": image["mime_type"],
+                            "data": image["data"],
+                        },
+                    })
+                content = blocks
+            conversation.append({"role": item.get("role", "user"), "content": content})
         body: dict[str, Any] = {
             "model": model, "max_tokens": 4096, "messages": conversation,
             "stream": True, "temperature": temperature,
@@ -198,15 +238,23 @@ class RemoteProviderClient:
                     if delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
                         yield delta["text"]
 
-    def _chat_gemini(self, model: str, messages: list[dict[str, str]], temperature: float) -> Iterator[str]:
+    def _chat_gemini(self, model: str, messages: list[dict[str, Any]], temperature: float) -> Iterator[str]:
         system_parts = [item["content"] for item in messages if item.get("role") == "system"]
         conversation = []
         for item in messages:
             if item.get("role") == "system":
                 continue
+            parts = [{"text": item.get("content", "")}] if item.get("content") else []
+            for image in item.get("images") or []:
+                parts.append({
+                    "inlineData": {
+                        "mimeType": image["mime_type"],
+                        "data": image["data"],
+                    }
+                })
             conversation.append({
                 "role": "model" if item.get("role") == "assistant" else "user",
-                "parts": [{"text": item.get("content", "")}],
+                "parts": parts,
             })
         body: dict[str, Any] = {
             "contents": conversation, "generationConfig": {"temperature": temperature},
