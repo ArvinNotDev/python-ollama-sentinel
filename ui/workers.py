@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 from typing import Any
+from urllib.parse import urlparse
 
 from PySide6.QtCore import QThread, Signal
 
 from core.ollama.ollama_commands import OllamaClient
 from core.ollama.library import OllamaLibraryClient
+from core.ollama.model_storage import move_model_directory
 from core.providers import RemoteProviderClient
 from core.speech.whisper_manager import WhisperModelManager
 
@@ -211,6 +213,35 @@ class DeleteModelWorker(QThread):
                 client.close()
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class MoveOllamaModelsWorker(QThread):
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, source: str, destination: str, endpoint: str, parent=None) -> None:
+        super().__init__(parent)
+        self.source = source
+        self.destination = destination
+        self.endpoint = endpoint
+
+    def run(self) -> None:
+        client = None
+        try:
+            parsed = urlparse(self.endpoint)
+            if parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
+                client = OllamaClient(self.endpoint, timeout=1.5)
+                if client.is_available(timeout=1.0):
+                    raise RuntimeError(
+                        "Ollama is still running. Stop the local Ollama server completely, then retry Move Models."
+                    )
+            destination = move_model_directory(self.source, self.destination)
+            self.completed.emit(str(destination))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        finally:
+            if client is not None:
+                client.close()
 
 
 class ProviderModelsWorker(QThread):
