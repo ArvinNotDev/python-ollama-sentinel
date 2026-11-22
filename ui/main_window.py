@@ -23,6 +23,7 @@ class MainWindow(QMainWindow):
         self.process_manager = OllamaProcessManager()
         self.whisper_manager = WhisperModelManager(self.settings.speech_models_directory)
         self._navigation_animation: QPropertyAnimation | None = None
+        self._close_pending = False
         self.setWindowTitle("Ollama Sentinel")
         self.setObjectName("MainWindow")
         self.resize(1360, 860)
@@ -299,6 +300,14 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(750, lambda: self._poll_server_start(attempt + 1))
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        worker = self.chat_page.worker
+        if worker and worker.isRunning():
+            event.ignore()
+            if not self._close_pending:
+                self._close_pending = True
+                self.chat_page.stop_generation()
+                worker.finished.connect(self.close)
+            return
         self.chat_page.save_current_conversation()
         self.process_manager.stop()
         super().closeEvent(event)
