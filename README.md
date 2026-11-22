@@ -2,12 +2,15 @@
 
 A polished desktop workspace for local Ollama models and remote AI API providers, with local Whisper voice input. Built with PySide6, Ollama's streaming API, provider-specific adapters and faster-whisper.
 
-**Current scope:** local model discovery/download, local and remote chat, saved remote API connections, and on-device speech-to-text. Agentic workflows, tools, autonomous task execution and project agents are intentionally not part of this release.
+**Current scope:** local model discovery/download, multimodal local and remote chat, saved remote API connections, on-device speech-to-text, document attachments and model-aware Think controls. Agentic workflows, tools, autonomous task execution and project agents are intentionally not part of this release.
 
 ## Features
 
 - Local Ollama model discovery, pull progress, installed model library and model removal.
 - Chat with local Ollama models or connected remote API models from one model selector.
+- Vision input for compatible models, with automatic Ollama capability detection and image forwarding to supported remote APIs.
+- Attach images or documents directly to Chat, with drag-and-drop, removable attachment chips and conversation history support.
+- Think toggle with a brain icon; local Ollama models expose only the boolean or named reasoning levels reported by `/api/show`, and streamed thinking output is shown separately from the answer.
 - Multiple saved API connections: OpenAI, Anthropic (Claude), Google (Gemini) and OpenAI-compatible endpoints.
 - API keys stored in the operating system credential manager.
 - Free multilingual Whisper models downloaded to a configurable local folder.
@@ -17,6 +20,14 @@ A polished desktop workspace for local Ollama models and remote AI API providers
 - CPU int8 transcription by default for broad hardware compatibility. The first transcription loads the model into memory; subsequent dictation reuses it.
 - Rounded dark desktop UI, sidebar navigation, provider settings and responsive settings page.
 - Choose the model folder used by an Ollama server launched from the app.
+
+## Multimodal Chat inputs
+
+- Images: PNG, JPEG, WebP and GIF. Local image support is enabled only when the selected Ollama model reports the `vision` capability. Remote image input is enabled for recognized vision model families and uses each provider's native image message format.
+- Documents: PDF, DOCX, XLSX/XLSM and PPTX. Text and code formats include TXT, Markdown, CSV/TSV, JSON/JSONL, HTML/XML, YAML, Python, JavaScript/TypeScript, C/C++, Java, Go, Rust, SQL and common shell/config files.
+- Documents are converted to text locally before being sent to the selected model. Each file is limited to 20 MB, up to 8 files can be attached, and the combined attachment size is limited to 40 MB.
+- PDFs use selectable text extraction. Scanned/image-only PDFs are not OCR-processed and must be made searchable before attachment. Spreadsheet sheets and presentation slide text are extracted, but embedded chart/image pixels are not converted into visual inputs.
+- Think is available for local Ollama models only when `/api/show` advertises supported thinking controls. Models may expose an on/off toggle or named levels such as low, medium and high. The model's streamed `thinking` field is displayed separately from its final answer. Remote providers do not share one standard capability-discovery or Think parameter, so the app does not guess their reasoning controls.
 
 ## Local voice models
 
