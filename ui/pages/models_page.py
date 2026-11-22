@@ -46,6 +46,92 @@ def _variant_label(model_name: str, item: dict[str, Any]) -> str:
     return "  ·  ".join(parts)
 
 
+class ModelVariantCard(QFrame):
+    download_requested = Signal(str)
+
+    def __init__(
+        self,
+        model_name: str,
+        variant: dict[str, Any],
+        installed: bool = False,
+        downloading: bool = False,
+    ) -> None:
+        super().__init__()
+        self.variant = variant
+        reference = str(variant.get("reference") or f"{model_name}:{variant.get('tag', 'latest')}")
+        tag = str(variant.get("tag") or "latest")
+        self.setObjectName("ModelVariantCard")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(13, 10, 12, 10)
+        row.setSpacing(12)
+
+        details = QVBoxLayout()
+        details.setSpacing(5)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(7)
+        title = QLabel(tag)
+        title.setObjectName("VariantTitle")
+        title_row.addWidget(title)
+        if variant.get("latest") or tag == "latest":
+            latest = QLabel("LATEST")
+            latest.setObjectName("VariantLatestPill")
+            title_row.addWidget(latest)
+        title_row.addStretch(1)
+        reference_label = QLabel(reference)
+        reference_label.setObjectName("Muted")
+        reference_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        details.addLayout(title_row)
+        details.addWidget(reference_label)
+
+        badges = QHBoxLayout()
+        badges.setSpacing(6)
+        size_match = re.search(r"(?i)(?:^|-)(\\d+(?:\\.\\d+)?[bm])(?:-|$)", tag)
+        quant_match = re.search(r"(?i)(?:^|-)((?:i?q\\d+_[a-z0-9_]+)|fp16|bf16|f16)(?:-|$)", tag)
+        badge_values = []
+        if size_match:
+            badge_values.append(size_match.group(1).upper())
+        if quant_match:
+            badge_values.append(quant_match.group(1).upper())
+        if variant.get("size"):
+            badge_values.append(str(variant["size"]))
+        if variant.get("context"):
+            badge_values.append(f'{variant["context"]} context')
+        input_value = variant.get("input")
+        if input_value:
+            badge_values.append(f"Input · {input_value}")
+        for value in badge_values[:5]:
+            badge = QLabel(value)
+            badge.setObjectName("VariantPill")
+            badges.addWidget(badge)
+        if not badge_values and variant.get("updated"):
+            updated = QLabel(str(variant["updated"]))
+            updated.setObjectName("Muted")
+            badges.addWidget(updated)
+        badges.addStretch(1)
+        details.addLayout(badges)
+        row.addLayout(details, 1)
+
+        self.download_button = QPushButton()
+        self.download_button.setObjectName("VariantDownloadButton")
+        self.download_button.setIcon(app_icon("mdi6.download", "#FFFFFF"))
+        self.download_button.setIconSize(QSize(15, 15))
+        self.download_button.setFixedHeight(34)
+        if installed:
+            self.download_button.setText("Installed")
+            self.download_button.setIcon(app_icon("mdi6.check", "#76D6A6"))
+            self.download_button.setEnabled(False)
+        elif downloading:
+            self.download_button.setText("Downloading…")
+            self.download_button.setEnabled(False)
+        else:
+            self.download_button.setText("Download")
+            self.download_button.clicked.connect(
+                lambda: self.download_requested.emit(reference)
+            )
+        row.addWidget(self.download_button, 0, Qt.AlignmentFlag.AlignVCenter)
+
+
+
 class DownloadJobCard(QFrame):
     cancel_requested = Signal(str)
 
@@ -235,38 +321,38 @@ class ModelsPage(QWidget):
         self.variant_panel.setObjectName("SettingCard")
         variant_layout = QVBoxLayout(self.variant_panel)
         variant_layout.setContentsMargins(16, 15, 16, 15)
-        variant_layout.setSpacing(10)
-        self.selected_model_title = QLabel("Select a model")
+        variant_layout.setSpacing(9)
+        self.selected_model_title = QLabel("Choose a model family")
         self.selected_model_title.setObjectName("CardTitle")
         self.selected_model_title.setWordWrap(True)
-        self.selected_model_summary = QLabel("Choose a model family on the left to inspect its available sizes and variants.")
+        self.selected_model_summary = QLabel("Select a family on the left to inspect every published variant.")
         self.selected_model_summary.setObjectName("CardDescription")
         self.selected_model_summary.setWordWrap(True)
-        self.selected_model_summary.setMinimumHeight(65)
         self.tag_count_label = QLabel("")
         self.tag_count_label.setObjectName("Muted")
-        self.variant_label = QLabel("Exact model variant")
-        self.variant_label.setObjectName("SectionTitle")
-        self.variant_combo = QComboBox()
-        self.variant_combo.setMinimumHeight(42)
-        self.variant_combo.setEnabled(False)
-        self.variant_combo.currentIndexChanged.connect(self._variant_selected)
-        self.variant_details = QLabel("Select a model to load its available tags from Ollama.")
-        self.variant_details.setObjectName("Muted")
-        self.variant_details.setWordWrap(True)
-        self.download_selected_button = QPushButton("Download selected variant")
-        self.download_selected_button.setObjectName("PrimaryButton")
-        self.download_selected_button.setIcon(app_icon("mdi6.download", "#FFFFFF"))
-        self.download_selected_button.clicked.connect(self._download_selected_variant)
-        self.download_selected_button.setEnabled(False)
+        variants_heading = QLabel("Available variants")
+        variants_heading.setObjectName("SectionTitle")
+        self.variant_status = QLabel("Select a model family to load its variants.")
+        self.variant_status.setObjectName("Muted")
+        self.variant_status.setWordWrap(True)
+        self.variant_scroll = QScrollArea()
+        self.variant_scroll.setWidgetResizable(True)
+        self.variant_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.variant_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.variant_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.variant_container = QWidget()
+        self.variant_rows_layout = QVBoxLayout(self.variant_container)
+        self.variant_rows_layout.setContentsMargins(0, 2, 5, 2)
+        self.variant_rows_layout.setSpacing(8)
+        self.variant_rows_layout.addStretch(1)
+        self.variant_scroll.setWidget(self.variant_container)
         variant_layout.addWidget(self.selected_model_title)
         variant_layout.addWidget(self.selected_model_summary)
         variant_layout.addWidget(self.tag_count_label)
-        variant_layout.addSpacing(8)
-        variant_layout.addWidget(self.variant_label)
-        variant_layout.addWidget(self.variant_combo)
-        variant_layout.addWidget(self.variant_details, 1)
-        variant_layout.addWidget(self.download_selected_button)
+        variant_layout.addSpacing(5)
+        variant_layout.addWidget(variants_heading)
+        variant_layout.addWidget(self.variant_status)
+        variant_layout.addWidget(self.variant_scroll, 1)
         browser.addWidget(self.variant_panel, 1)
         layout.addLayout(browser, 1)
 
@@ -416,10 +502,9 @@ class ModelsPage(QWidget):
         self.selected_model_title.setText(name)
         self.selected_model_summary.setText(str(model.get("summary") or "No description is available for this model."))
         self.tag_count_label.setText(f'{model.get("tag_count", "Loading")} variants listed by Ollama')
-        self.variant_combo.clear()
-        self.variant_combo.setEnabled(False)
-        self.download_selected_button.setEnabled(False)
-        self.variant_details.setText("Loading exact tags, parameter sizes and download sizes…")
+        self._clear_variant_rows()
+        self.variant_status.setStyleSheet("")
+        self.variant_status.setText("Loading exact tags, parameter sizes and download sizes…")
         if name in self.tags_cache:
             self._populate_variants(name, self.tags_cache[name])
             return
@@ -439,8 +524,8 @@ class ModelsPage(QWidget):
 
     def _tags_failed(self, model_name: str, message: str) -> None:
         if self._selected_family_name() == model_name:
-            self.variant_details.setText(f"Could not load variants: {message}")
-            self.variant_details.setStyleSheet("color: #E59A9A;")
+            self.variant_status.setText(f"Could not load variants: {message}")
+            self.variant_status.setStyleSheet("color: #E59A9A;")
         self.status_message.emit(f"Could not load tags for {model_name}: {message}")
 
     def _tags_finished(self, name: str, worker: OllamaModelTagsWorker) -> None:
@@ -448,46 +533,43 @@ class ModelsPage(QWidget):
             self.tag_workers.pop(name, None)
         worker.deleteLater()
 
+    def _clear_variant_rows(self) -> None:
+        while self.variant_rows_layout.count() > 1:
+            item = self.variant_rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def _installed_model_names(self) -> set[str]:
+        return {
+            str(item.get("name") or item.get("model") or "")
+            for item in self.models
+        }
+
     def _populate_variants(self, model_name: str, tags: list[dict]) -> None:
-        self.variant_combo.blockSignals(True)
-        self.variant_combo.clear()
-        for tag in tags:
-            self.variant_combo.addItem(_variant_label(model_name, tag), tag)
-        self.variant_combo.blockSignals(False)
-        if tags:
-            latest_index = next((i for i, tag in enumerate(tags) if tag.get("latest")), 0)
-            self.variant_combo.setCurrentIndex(latest_index)
-            self.variant_combo.setEnabled(True)
-            self.download_selected_button.setEnabled(True)
-            self.tag_count_label.setText(f"{len(tags)} exact variants available")
-            self._variant_selected(latest_index)
-        else:
-            self.variant_details.setText("Ollama did not return any downloadable tags for this model.")
-            self.download_selected_button.setEnabled(False)
-
-    def _variant_selected(self, _index: int = -1) -> None:
-        item = self.variant_combo.currentData()
-        if not isinstance(item, dict):
-            self.variant_details.setText("Choose a model variant.")
-            self.download_selected_button.setEnabled(False)
+        self._clear_variant_rows()
+        if not tags:
+            self.tag_count_label.setText("No variants available")
+            self.variant_status.setText("Ollama did not return any downloadable variants for this model.")
             return
-        details = [
-            f'Exact pull name: {item.get("reference", "")}',
-            f'Download size: {item.get("size") or "Not listed"}',
-            f'Context window: {item.get("context") or "Not listed"}',
-            f'Input: {item.get("input") or "Not listed"}',
-            f'Updated: {item.get("updated") or "Not listed"}',
-        ]
-        self.variant_details.setText("\n".join(details))
-        self.variant_details.setStyleSheet("")
-        self.download_selected_button.setEnabled(True)
 
-    def _download_selected_variant(self) -> None:
-        item = self.variant_combo.currentData()
-        if isinstance(item, dict):
-            reference = str(item.get("reference") or "")
-            if reference:
-                self.start_download(reference)
+        installed_names = self._installed_model_names()
+        for variant in tags:
+            reference = str(variant.get("reference") or f'{model_name}:{variant.get("tag", "latest")}')
+            installed = reference in installed_names
+            downloading = reference in self.workers and self.workers[reference].isRunning()
+            card = ModelVariantCard(model_name, variant, installed=installed, downloading=downloading)
+            card.download_requested.connect(self.start_download)
+            self.variant_rows_layout.insertWidget(self.variant_rows_layout.count() - 1, card)
+
+        self.tag_count_label.setText(f"{len(tags)} exact variants · sorted as published by Ollama")
+        self.variant_status.setText("Each row shows the exact pull tag and its published specifications.")
+        self.variant_status.setStyleSheet("")
+
+    def _refresh_variant_rows(self) -> None:
+        model_name = self._selected_family_name()
+        if model_name in self.tags_cache:
+            self._populate_variants(model_name, self.tags_cache[model_name])
 
     def _pull_custom(self) -> None:
         model = self.custom_model_input.text().strip()
@@ -525,6 +607,7 @@ class ModelsPage(QWidget):
         self.jobs_scroll.verticalScrollBar().setValue(self.jobs_scroll.verticalScrollBar().maximum())
         worker.start()
         self._update_jobs_panel()
+        self._refresh_variant_rows()
         self.status_message.emit(f"Started downloading {model_name}.")
 
     def _cancel_download(self, model_name: str) -> None:
@@ -565,6 +648,7 @@ class ModelsPage(QWidget):
         if worker:
             worker.deleteLater()
         self._update_jobs_panel()
+        self._refresh_variant_rows()
 
     def _update_jobs_panel(self) -> None:
         active = sum(worker.isRunning() for worker in self.workers.values())
@@ -602,6 +686,7 @@ class ModelsPage(QWidget):
     def _on_models_loaded(self, models: list[dict]) -> None:
         self.models = models
         self._render_library()
+        self._refresh_variant_rows()
         self.models_changed.emit(models)
         self.connection_changed.emit(True)
 
