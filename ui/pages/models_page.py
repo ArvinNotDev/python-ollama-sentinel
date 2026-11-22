@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QProgressBar, QScrollArea, QTabWidget,
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.workers import ModelListWorker, PullWorker
+from ui.theme import app_icon
 
 
 FEATURED_MODELS = [
@@ -110,7 +111,7 @@ class ModelsPage(QWidget):
         self.list_worker: ModelListWorker | None = None
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(34, 27, 34, 24)
+        root.setContentsMargins(30, 24, 30, 22)
         root.setSpacing(15)
         header = QHBoxLayout()
         heading = QVBoxLayout()
@@ -122,7 +123,8 @@ class ModelsPage(QWidget):
         heading.addWidget(subtitle)
         header.addLayout(heading)
         header.addStretch()
-        self.refresh_button = QPushButton("↻  Refresh library")
+        self.refresh_button = QPushButton("Refresh library")
+        self.refresh_button.setIcon(app_icon("mdi6.refresh", "#B7BEC9"))
         self.refresh_button.clicked.connect(self.refresh_models)
         header.addWidget(self.refresh_button)
         root.addLayout(header)
@@ -131,8 +133,9 @@ class ModelsPage(QWidget):
         root.addWidget(self.tabs, 1)
         self.discover_tab = QWidget()
         self.library_tab = QWidget()
-        self.tabs.addTab(self.discover_tab, "Discover")
-        self.tabs.addTab(self.library_tab, "My models")
+        self.tabs.addTab(self.discover_tab, app_icon("mdi6.compass-outline"), "Discover")
+        self.tabs.addTab(self.library_tab, app_icon("mdi6.database-outline"), "My models")
+        self.tabs.tabBar().setIconSize(QSize(16, 16))
         self._build_discover()
         self._build_library()
 
@@ -186,7 +189,8 @@ class ModelsPage(QWidget):
         self.custom_model_input = QLineEdit()
         self.custom_model_input.setPlaceholderText("Model name or tag, e.g. qwen3:8b or llama3.2:3b")
         self.custom_model_input.returnPressed.connect(self._pull_custom)
-        self.custom_pull_button = QPushButton("＋  Download model")
+        self.custom_pull_button = QPushButton("Download model")
+        self.custom_pull_button.setIcon(app_icon("mdi6.download", "#FFFFFF"))
         self.custom_pull_button.setObjectName("PrimaryButton")
         self.custom_pull_button.clicked.connect(self._pull_custom)
         custom_row.addWidget(self.custom_model_input, 1)
@@ -219,7 +223,8 @@ class ModelsPage(QWidget):
             description_label.setWordWrap(True)
             category_label = QLabel(category)
             category_label.setObjectName("Muted")
-            download = QPushButton("Download  ↓")
+            download = QPushButton("Download")
+            download.setIcon(app_icon("mdi6.download", "#B7BEC9"))
             download.clicked.connect(lambda _checked=False, model=tag: self.start_download(model))
             card_layout.addLayout(title_row)
             card_layout.addWidget(description_label, 1)
@@ -363,6 +368,7 @@ class ModelsPage(QWidget):
             info.addWidget(title)
             info.addWidget(detail)
             remove = QPushButton("Remove")
+            remove.setIcon(app_icon("mdi6.trash-can-outline", "#F09BA4"))
             remove.setObjectName("DangerButton")
             remove.clicked.connect(lambda _checked=False, value=name: self.remove_model(value))
             row.addLayout(info, 1)

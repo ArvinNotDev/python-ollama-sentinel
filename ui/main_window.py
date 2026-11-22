@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, Qt, QTimer, QSize
 from PySide6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QStackedWidget, QVBoxLayout, QWidget,
@@ -13,6 +13,7 @@ from ui.pages.chat_page import ChatPage
 from ui.pages.models_page import ModelsPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.voice_page import VoicePage
+from ui.theme import app_icon
 
 
 class MainWindow(QMainWindow):
@@ -23,25 +24,29 @@ class MainWindow(QMainWindow):
         self.whisper_manager = WhisperModelManager(self.settings.speech_models_directory)
         self._navigation_animation: QPropertyAnimation | None = None
         self.setWindowTitle("Ollama Sentinel")
+        self.setObjectName("MainWindow")
         self.resize(1360, 860)
         self.setMinimumSize(1080, 700)
 
         root = QWidget()
+        root.setObjectName("AppRoot")
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(228)
+        sidebar.setFixedWidth(236)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(16, 21, 16, 18)
-        sidebar_layout.setSpacing(9)
+        sidebar_layout.setContentsMargins(17, 20, 17, 18)
+        sidebar_layout.setSpacing(7)
 
         brand_row = QHBoxLayout()
-        brand_mark = QLabel("O")
+        brand_mark = QLabel()
         brand_mark.setObjectName("BrandMark")
-        brand_mark.setFixedSize(34, 34)
+        brand_mark.setFixedSize(36, 36)
+        brand_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_mark.setPixmap(app_icon("mdi6.robot-outline", "#FFFFFF").pixmap(QSize(21, 21)))
         brand_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
         brand_name = QLabel("Ollama Sentinel")
         brand_name.setObjectName("Brand")
@@ -56,8 +61,11 @@ class MainWindow(QMainWindow):
         nav_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; padding-left: 7px;")
         sidebar_layout.addWidget(nav_label)
         self.nav_buttons: list[QPushButton] = []
-        for label, icon, index in (("Chat", "◌", 0), ("Models", "▦", 1), ("Voice", "♫", 2), ("Settings", "⚙", 3)):
-            button = QPushButton(f"{icon}    {label}")
+        self._nav_items = (("Chat", "mdi6.chat-outline", 0), ("Models", "mdi6.cube-outline", 1), ("Voice", "mdi6.waveform", 2), ("Settings", "mdi6.tune-variant", 3))
+        for label, icon_name, index in self._nav_items:
+            button = QPushButton(label)
+            button.setIcon(app_icon(icon_name))
+            button.setIconSize(QSize(18, 18))
             button.setObjectName("NavButton")
             button.setCheckable(True)
             button.clicked.connect(lambda _checked=False, page=index: self.navigate(page))
@@ -66,7 +74,7 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch(1)
         server_card = QFrame()
-        server_card.setObjectName("Surface")
+        server_card.setObjectName("ServerCard")
         server_layout = QVBoxLayout(server_card)
         server_layout.setContentsMargins(12, 12, 12, 12)
         status_heading = QLabel("OLLAMA SERVER")
@@ -85,12 +93,13 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(sidebar)
 
         content = QWidget()
+        content.setObjectName("ContentArea")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
         topbar = QFrame()
         topbar.setObjectName("TopBar")
-        topbar.setFixedHeight(58)
+        topbar.setFixedHeight(56)
         top_layout = QHBoxLayout(topbar)
         top_layout.setContentsMargins(26, 0, 28, 0)
         self.breadcrumb = QLabel("Workspace  /  Chat")
@@ -153,6 +162,7 @@ class MainWindow(QMainWindow):
             animation.start()
         for position, button in enumerate(self.nav_buttons):
             button.setChecked(position == index)
+            button.setIcon(app_icon(self._nav_items[position][1], "#C7BDF5" if position == index else "#9299A6"))
         labels = ("Workspace  /  Chat", "Workspace  /  Models", "Workspace  /  Voice", "Workspace  /  Settings")
         self.breadcrumb.setText(labels[index])
         if index == 1:
