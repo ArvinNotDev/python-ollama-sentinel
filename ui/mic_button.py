@@ -30,8 +30,9 @@ class CircularMicButton(QPushButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(4, 4, -4, -4)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#29233d" if self._recording else "#1b202b"))
-        painter.drawEllipse(rect)
+        if self._progress is not None or self._recording:
+            painter.setBrush(QColor("#29233d" if self._recording else "#1b202b"))
+            painter.drawEllipse(rect)
 
         ring_rect = self.rect().adjusted(1, 1, -1, -1)
         if self._progress is not None:
@@ -40,15 +41,12 @@ class CircularMicButton(QPushButton):
             painter.setPen(QPen(QColor("#8a75ff"), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             painter.drawArc(ring_rect, 90 * 16, int(-360 * self._progress / 100 * 16))
         elif self._recording:
-            painter.setPen(QPen(QColor("#f07883"), 3.0))
-            painter.drawEllipse(ring_rect)
-        else:
-            painter.setPen(QPen(QColor("#343b4b"), 1.2))
+            painter.setPen(QPen(QColor("#f07883"), 2.4))
             painter.drawEllipse(ring_rect)
 
         center_x = self.width() / 2
         center_y = self.height() / 2
-        icon_color = QColor("#ff8c98" if self._recording else "#d8dbee")
+        icon_color = QColor("#ff8c98" if self._recording else "#E7E9EF")
         painter.setPen(QPen(icon_color, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if self._recording:
