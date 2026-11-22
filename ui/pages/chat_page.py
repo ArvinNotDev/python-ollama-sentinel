@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 import uuid
 
 from PySide6.QtCore import Qt, Signal, QTimer, QSize, QAbstractAnimation, QPropertyAnimation, QEasingCurve
@@ -31,6 +32,32 @@ class PromptComposer(QPlainTextEdit):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAcceptDrops(True)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setMinimumHeight(42)
+        self.setMaximumHeight(138)
+        self.setFixedHeight(42)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._adjusting_height = False
+        self.textChanged.connect(self._adjust_height)
+        self.document().documentLayout().documentSizeChanged.connect(self._adjust_height)
+
+    def _adjust_height(self, *_args) -> None:
+        if self._adjusting_height:
+            return
+        self._adjusting_height = True
+        try:
+            document_height = self.document().documentLayout().documentSize().height()
+            desired = max(42, int(math.ceil(document_height)) + 18)
+            height = min(138, desired)
+            if self.height() != height:
+                self.setFixedHeight(height)
+            self.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                if desired > 138 else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+        finally:
+            self._adjusting_height = False
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt override
         if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
@@ -51,6 +78,14 @@ class PromptComposer(QPlainTextEdit):
             self.send_requested.emit()
             return
         super().keyPressEvent(event)
+
+
+class StatusHint(QLabel):
+    """A compact status line that appears only when there is a message to show."""
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self.setVisible(bool(text))
 
 
 class ThinkingIndicator(QWidget):
@@ -186,14 +221,14 @@ class ChatPage(QWidget):
         self.transcript_layout.insertWidget(0, self.welcome)
 
         composer_card = QFrame()
-        composer_card.setObjectName("Surface")
+        composer_card.setObjectName("ChatComposerShell")
         composer_layout = QVBoxLayout(composer_card)
-        composer_layout.setContentsMargins(13, 13, 13, 11)
-        composer_layout.setSpacing(9)
+        composer_layout.setContentsMargins(10, 7, 10, 7)
+        composer_layout.setSpacing(4)
         self.attachment_scroll = QScrollArea()
         self.attachment_scroll.setObjectName("AttachmentStrip")
         self.attachment_scroll.setWidgetResizable(True)
-        self.attachment_scroll.setFixedHeight(62)
+        self.attachment_scroll.setFixedHeight(58)
         self.attachment_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.attachment_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.attachment_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -205,53 +240,68 @@ class ChatPage(QWidget):
         self.attachment_scroll.hide()
         composer_layout.addWidget(self.attachment_scroll)
 
-        self.composer = PromptComposer()
-        self.composer.setObjectName("Composer")
-        self.composer.setPlaceholderText("Message your model…  (Ctrl + Enter to send, or drop files here)")
-        self.composer.setMinimumHeight(88)
-        self.composer.setMaximumHeight(170)
-        self.composer.send_requested.connect(self.send_message)
-        self.composer.files_dropped.connect(self._add_attachment_paths)
-        composer_layout.addWidget(self.composer)
-
-        action_row = QHBoxLayout()
+        bar_row = QHBoxLayout()
+        bar_row.setContentsMargins(0, 0, 0, 0)
+        bar_row.setSpacing(7)
         self.attach_button = QPushButton()
-        self.attach_button.setIcon(app_icon("mdi6.plus", "#D7DCE6"))
-        self.attach_button.setIconSize(QSize(18, 18))
-        self.attach_button.setObjectName("AddAttachmentButton")
+        self.attach_button.setIcon(app_icon("mdi6.plus", "#E2E5EB"))
+        self.attach_button.setIconSize(QSize(19, 19))
+        self.attach_button.setObjectName("ComposerPlusButton")
         self.attach_button.setFixedSize(36, 36)
         self.attach_button.setToolTip("Add images or files")
         self.attach_button.clicked.connect(self._choose_attachments)
+
+        self.model_combo.setMinimumWidth(145)
+        self.model_combo.setMaximumWidth(190)
+        self.model_combo.setFixedHeight(36)
+        self.model_combo.setMinimumContentsLength(10)
+
+        self.composer = PromptComposer()
+        self.composer.setObjectName("Composer")
+        self.composer.setPlaceholderText("Ask your model anything…")
+        self.composer.send_requested.connect(self.send_message)
+        self.composer.files_dropped.connect(self._add_attachment_paths)
+
         self.think_button = QPushButton("Think")
-        self.think_button.setIcon(app_icon("mdi6.brain", "#B7BEC9"))
-        self.think_button.setIconSize(QSize(17, 17))
-        self.think_button.setObjectName("GhostButton")
+        self.think_button.setIcon(app_icon("mdi6.brain", "#9FB7F8"))
+        self.think_button.setIconSize(QSize(15, 15))
+        self.think_button.setObjectName("ComposerThinkButton")
         self.think_button.setCheckable(True)
         self.think_button.setEnabled(False)
+        self.think_button.setFixedHeight(34)
         self.think_button.setToolTip("Select a local model that supports thinking to enable this.")
         self.think_button.toggled.connect(self._think_toggled)
         self.think_level_combo = QComboBox()
-        self.think_level_combo.setMinimumWidth(84)
-        self.think_level_combo.setMaximumWidth(100)
+        self.think_level_combo.setObjectName("ThinkLevelPicker")
+        self.think_level_combo.setMinimumWidth(74)
+        self.think_level_combo.setMaximumWidth(88)
+        self.think_level_combo.setFixedHeight(34)
         self.think_level_combo.hide()
-        self.hint = QLabel("Choose a model to begin.")
+
+        self.hint = StatusHint("")
         self.hint.setObjectName("Muted")
+        self.hint.setWordWrap(True)
         self.mic_button = CircularMicButton()
+        self.mic_button.setFixedSize(38, 38)
         self.mic_button.clicked.connect(self._toggle_voice_input)
-        self.send_button = QPushButton("Send")
+        self.send_button = QPushButton()
         self.send_button.setIcon(app_icon("mdi6.arrow-up", "#FFFFFF"))
-        self.send_button.setIconSize(QSize(16, 16))
-        self.send_button.setObjectName("PrimaryButton")
+        self.send_button.setIconSize(QSize(19, 19))
+        self.send_button.setObjectName("SendCircleButton")
+        self.send_button.setFixedSize(40, 40)
+        self.send_button.setToolTip("Send message")
         self.send_button.clicked.connect(self.send_message)
-        action_row.addWidget(self.attach_button)
-        action_row.addWidget(self.model_combo)
-        action_row.addWidget(self.think_button)
-        action_row.addWidget(self.think_level_combo)
-        action_row.addWidget(self.hint, 1)
-        action_row.addWidget(self.mic_button)
-        action_row.addWidget(self.send_button)
-        composer_layout.addLayout(action_row)
+
+        bar_row.addWidget(self.attach_button)
+        bar_row.addWidget(self.model_combo)
+        bar_row.addWidget(self.composer, 1)
+        bar_row.addWidget(self.think_button)
+        bar_row.addWidget(self.think_level_combo)
+        bar_row.addWidget(self.mic_button)
+        bar_row.addWidget(self.send_button)
+        composer_layout.addLayout(bar_row)
         root.addWidget(composer_card)
+        root.addWidget(self.hint)
 
         if self.conversations:
             latest = max(self.conversations, key=lambda item: str(item.get("updated_at", "")))
