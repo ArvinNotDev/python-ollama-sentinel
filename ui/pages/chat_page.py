@@ -292,7 +292,7 @@ class ChatPage(QWidget):
         self.send_button.setObjectName("SendCircleButton")
         self.send_button.setFixedSize(40, 40)
         self.send_button.setToolTip("Send message")
-        self.send_button.clicked.connect(self.send_message)
+        self.send_button.clicked.connect(self._send_or_stop)
 
         bar_row.addWidget(self.attach_button)
         bar_row.addWidget(self.model_combo)
@@ -309,6 +309,8 @@ class ChatPage(QWidget):
             latest = max(self.conversations, key=lambda item: str(item.get("updated_at", "")))
             self.open_conversation(str(latest.get("id", "")))
         self._emit_conversations_changed()
+        if self.history_store.load_warning:
+            self.hint.setText(self.history_store.load_warning)
 
     def set_endpoint(self, endpoint: str) -> None:
         self.endpoint = endpoint
@@ -767,6 +769,8 @@ class ChatPage(QWidget):
                         self._assistant_thinking_status.setText("COMPLETED")
                     if self._assistant_thinking_header:
                         self._assistant_thinking_header.setChecked(False)
+                if message.get("cancelled") and not message.get("content"):
+                    body.setText("Generation stopped.")
                 if message.get("error") and not message.get("content"):
                     body.setText(f'Unable to generate a response: {message["error"]}')
         QTimer.singleShot(0, self._scroll_to_bottom)
@@ -1030,6 +1034,22 @@ class ChatPage(QWidget):
             if enabled else "Model reasoning is disabled for this request."
         )
 
+    def _send_or_stop(self) -> None:
+        if self.worker and self.worker.isRunning():
+            self.stop_generation()
+            return
+        self.send_message()
+
+    def stop_generation(self) -> None:
+        """Stop the active model stream without discarding its partial answer."""
+        worker = self.worker
+        if worker is None or not worker.isRunning():
+            return
+        self.send_button.setEnabled(False)
+        self.send_button.setToolTip("Stopping generation…")
+        self.hint.setText("Stopping generation…")
+        worker.cancel()
+
     def send_message(self) -> None:
         prompt = self.composer.toPlainText().strip()
         selection = self.model_combo.currentData()
@@ -1095,7 +1115,9 @@ class ChatPage(QWidget):
         self.attachments.clear()
         self._render_attachments()
         self.composer.setEnabled(False)
-        self.send_button.setEnabled(False)
+        self.send_button.setIcon(app_icon("mdi6.stop", "#FFFFFF"))
+        self.send_button.setToolTip("Stop generation")
+        self.send_button.setEnabled(True)
         self.mic_button.setEnabled(False)
         self.attach_button.setEnabled(False)
         self.think_button.setEnabled(False)
@@ -1110,6 +1132,7 @@ class ChatPage(QWidget):
         self.worker.thinking_chunk.connect(self._on_thinking_chunk)
         self.worker.completed.connect(self._on_completed)
         self.worker.failed.connect(self._on_failed)
+        self.worker.cancelled.connect(self._on_cancelled)
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
 
@@ -1186,11 +1209,28 @@ class ChatPage(QWidget):
             self._assistant_thinking_panel.setVisible(bool(self._thinking_text))
         self.save_current_conversation()
 
+    def _on_cancelled(self) -> None:
+        if self._active_assistant_message is not None:
+            self._active_assistant_message["content"] = self._streaming_text
+            self._active_assistant_message["thinking"] = self._thinking_text
+            self._active_assistant_message["cancelled"] = True
+        if self._assistant_body:
+            self._assistant_body.setText(self._streaming_text or "Generation stopped.")
+        if self._assistant_thinking_indicator:
+            self._assistant_thinking_indicator.set_running(False)
+        if self._assistant_thinking_status and self._thinking_text:
+            self._assistant_thinking_status.setText("STOPPED")
+        if self._assistant_thinking_panel:
+            self._assistant_thinking_panel.setVisible(bool(self._thinking_text))
+        self.hint.setText("Generation stopped. The partial response has been saved.")
+
     def _worker_finished(self) -> None:
         if self._assistant_thinking_indicator:
             self._assistant_thinking_indicator.set_running(False)
         self.composer.setEnabled(True)
         self.mic_button.setEnabled(True)
+        self.send_button.setIcon(app_icon("mdi6.arrow-up", "#FFFFFF"))
+        self.send_button.setToolTip("Send message")
         self.send_button.setEnabled(self.model_combo.count() > 0)
         self.attach_button.setEnabled(True)
         self.think_button.setEnabled(self._think_supported and not self._think_required)
