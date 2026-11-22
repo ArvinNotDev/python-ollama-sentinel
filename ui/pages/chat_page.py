@@ -402,12 +402,17 @@ class ChatPage(QWidget):
         elif string_levels:
             self.think_level_combo.setCurrentIndex(0)
         self.think_level_combo.blockSignals(False)
-        self.think_level_combo.setVisible(self._think_supported and bool(string_levels))
-        self.think_level_combo.setEnabled(self._think_supported and bool(string_levels))
 
         default_requests_thinking = (
             think_default is True or isinstance(think_default, str)
         )
+        level_picker_visible = (
+            self._think_supported
+            and bool(string_levels)
+            and (self._think_required or default_requests_thinking)
+        )
+        self.think_level_combo.setVisible(level_picker_visible)
+        self.think_level_combo.setEnabled(level_picker_visible)
         self.think_button.blockSignals(True)
         self.think_button.setChecked(
             self._think_supported and (self._think_required or default_requests_thinking)
@@ -1004,9 +1009,11 @@ class ChatPage(QWidget):
             self.think_button.setChecked(True)
             self.think_button.blockSignals(False)
             return
-        self.think_level_combo.setVisible(
-            self._think_supported and self._think_mode == "levels"
+        show_levels = (
+            enabled and self._think_supported and self._think_mode == "levels"
         )
+        self.think_level_combo.setVisible(show_levels)
+        self.think_level_combo.setEnabled(show_levels)
         self.think_button.setText("Think")
         self.think_button.setToolTip(
             "Model reasoning is enabled for this request."
