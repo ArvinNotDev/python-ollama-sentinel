@@ -5,6 +5,7 @@ import math
 import uuid
 
 from PySide6.QtCore import Qt, Signal, QTimer, QSize, QAbstractAnimation, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser,
@@ -16,6 +17,7 @@ from core.chat_history import ChatHistoryStore
 
 from core.secrets import SecretStoreError
 from core.settings import SettingsStore
+from core.thinking import resolve_thinking_controls
 from core.speech.whisper_manager import WhisperModelManager
 from ui.audio_recorder import AudioRecorder
 from ui.mic_button import CircularMicButton
@@ -153,6 +155,7 @@ class ChatPage(QWidget):
         self.capabilities_workers: dict[str, ModelCapabilitiesWorker] = {}
         self._active_model_supports_vision = False
         self._think_supported = False
+        self._think_required = False
         self._think_values: list[object] = []
         self._think_default: object = None
         self._think_mode = "boolean"
@@ -162,7 +165,10 @@ class ChatPage(QWidget):
         self.recorder = AudioRecorder(self)
         self._assistant_body: QLabel | None = None
         self._assistant_thinking_header: QPushButton | None = None
+        self._assistant_thinking_panel: QFrame | None = None
         self._assistant_thinking_body: QTextBrowser | None = None
+        self._assistant_thinking_status: QLabel | None = None
+        self._assistant_thinking_chevron: QLabel | None = None
         self._assistant_thinking_indicator: ThinkingIndicator | None = None
         self._streaming_text = ""
         self._thinking_text = ""
@@ -373,37 +379,56 @@ class ChatPage(QWidget):
             self._schedule_history_save()
 
     def _set_model_features(
-        self, vision: bool, think_values: list[object] | None = None, think_default: object = None,
-        think_tooltip: str = "",
+        self, vision: bool, think_values: list[object] | None = None,
+        think_default: object = None, think_tooltip: str = "",
+        think_required: bool = False,
     ) -> None:
         self._active_model_supports_vision = vision
         self._think_values = list(think_values or [])
         self._think_default = think_default
         self._think_supported = any(value is True for value in self._think_values) or any(
-            isinstance(value, str) and value for value in self._think_values
+            isinstance(value, str) and value.strip() for value in self._think_values
         )
-        self.think_button.blockSignals(True)
-        self.think_button.setChecked(False)
-        self.think_button.setText("Think")
-        self.think_button.blockSignals(False)
-        self.think_level_combo.blockSignals(True)
-        self.think_level_combo.clear()
+        # If the model does not advertise False, thinking cannot be disabled.
+        self._think_required = self._think_supported and (
+            think_required or False not in self._think_values
+        )
+
         string_levels = [value for value in self._think_values if isinstance(value, str)]
         self._think_mode = "levels" if string_levels else "boolean"
+        self.think_level_combo.blockSignals(True)
+        self.think_level_combo.clear()
         for level in string_levels:
             self.think_level_combo.addItem(str(level).capitalize(), level)
         default_index = self.think_level_combo.findData(think_default)
         if default_index >= 0:
             self.think_level_combo.setCurrentIndex(default_index)
+        elif string_levels:
+            self.think_level_combo.setCurrentIndex(0)
         self.think_level_combo.blockSignals(False)
         self.think_level_combo.setVisible(self._think_supported and bool(string_levels))
-        self.think_button.setEnabled(self._think_supported)
-        self.think_button.setToolTip(
-            think_tooltip or (
-                "Enable model reasoning output." if self._think_supported
-                else "This model does not advertise a Think capability."
-            )
+        self.think_level_combo.setEnabled(self._think_supported and bool(string_levels))
+
+        default_requests_thinking = (
+            think_default is True or isinstance(think_default, str)
         )
+        self.think_button.blockSignals(True)
+        self.think_button.setChecked(self._think_required or default_requests_thinking)
+        self.think_button.setText("Think")
+        self.think_button.setEnabled(self._think_supported and not self._think_required)
+        self.think_button.setProperty("thinkAvailable", self._think_supported)
+        self.think_button.setProperty("thinkRequired", self._think_required)
+        self.think_button.style().unpolish(self.think_button)
+        self.think_button.style().polish(self.think_button)
+        self.think_button.blockSignals(False)
+
+        if self._think_required:
+            tooltip = "This model requires thinking. It stays enabled and cannot be turned off."
+        elif self._think_supported:
+            tooltip = "Toggle model reasoning on or off."
+        else:
+            tooltip = think_tooltip or "This model does not support an optional Think control."
+        self.think_button.setToolTip(tooltip)
         if vision:
             self.attach_button.setToolTip("Attach images and documents. Drop files into the message box.")
         else:
@@ -441,11 +466,11 @@ class ChatPage(QWidget):
         if selection and selection.get("source") == "ollama" and selection.get("model_id") == model_name:
             capabilities = {str(item).lower() for item in details.get("capabilities", [])}
             vision = "vision" in capabilities
-            thinking = details.get("thinking") or {}
-            values = thinking.get("values", []) if isinstance(thinking, dict) else []
-            if not values and "thinking" in capabilities:
-                values = [True]
-            self._set_model_features(vision, values, thinking.get("default") if isinstance(thinking, dict) else None)
+            thinking = resolve_thinking_controls(details)
+            self._set_model_features(
+                vision, list(thinking.values), thinking.default,
+                think_required=thinking.required,
+            )
             if self.attachments and not vision and any(item.get("kind") == "image" for item in self.attachments):
                 self.hint.setText("The selected model cannot process images. Choose a vision-capable model.")
             else:
@@ -486,13 +511,10 @@ class ChatPage(QWidget):
         if model_name in self.capabilities_cache:
             details = self.capabilities_cache[model_name]
             capabilities = {str(item).lower() for item in details.get("capabilities", [])}
-            thinking = details.get("thinking") or {}
-            values = thinking.get("values", []) if isinstance(thinking, dict) else []
-            if not values and "thinking" in capabilities:
-                values = [True]
+            thinking = resolve_thinking_controls(details)
             self._set_model_features(
-                "vision" in capabilities, values,
-                thinking.get("default") if isinstance(thinking, dict) else None,
+                "vision" in capabilities, list(thinking.values),
+                thinking.default, think_required=thinking.required,
             )
             self.hint.setText(f"Local Ollama model · {model_name}")
         else:
@@ -504,7 +526,7 @@ class ChatPage(QWidget):
     ) -> QLabel:
         card = QFrame()
         card.setObjectName("UserMessage" if role == "user" else "AssistantMessage")
-        card.setMaximumWidth(920)
+        card.setMaximumWidth(920 if role == "user" else 1160)
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 12, 16, 13)
@@ -536,33 +558,74 @@ class ChatPage(QWidget):
             attachment_row.addStretch()
             layout.addLayout(attachment_row)
         if role == "assistant":
-            thinking_row = QHBoxLayout()
+            thinking_panel = QFrame(card)
+            thinking_panel.setObjectName("ThinkingPanel")
+            thinking_panel_layout = QVBoxLayout(thinking_panel)
+            thinking_panel_layout.setContentsMargins(11, 8, 11, 9)
+            thinking_panel_layout.setSpacing(7)
+
+            thinking_header_row = QHBoxLayout()
+            thinking_header_row.setContentsMargins(0, 0, 0, 0)
             thinking_header = QPushButton("Thinking process")
-            thinking_header.setIcon(app_icon("mdi6.brain", "#AFA4E8"))
+            thinking_header.setIcon(app_icon("mdi6.brain", "#AFC4EB"))
+            thinking_header.setIconSize(QSize(17, 17))
             thinking_header.setObjectName("ThinkingHeader")
             thinking_header.setCheckable(True)
             thinking_header.setChecked(False)
-            thinking_header.setVisible(False)
+            thinking_chevron = QLabel()
+            thinking_chevron.setPixmap(
+                app_icon("mdi6.chevron-right", "#A9B3C3").pixmap(QSize(16, 16))
+            )
+            thinking_status = QLabel("")
+            thinking_status.setObjectName("ThinkingStatus")
+            thinking_indicator = ThinkingIndicator(thinking_panel)
+            thinking_indicator.set_running(False)
+            thinking_header_row.addWidget(thinking_header)
+            thinking_header_row.addWidget(thinking_chevron)
+            thinking_header_row.addStretch(1)
+            thinking_header_row.addWidget(thinking_status)
+            thinking_header_row.addWidget(thinking_indicator)
+
             thinking_body = QTextBrowser()
             thinking_body.setObjectName("ThinkingBody")
             thinking_body.setReadOnly(True)
             thinking_body.setOpenExternalLinks(False)
-            thinking_body.setMaximumHeight(250)
+            thinking_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            thinking_body.setMinimumHeight(96)
+            thinking_body.setMaximumHeight(270)
+            thinking_body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            thinking_body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             thinking_body.setVisible(False)
-            thinking_header.toggled.connect(thinking_body.setVisible)
-            indicator = ThinkingIndicator(card)
-            indicator.set_running(streaming)
-            thinking_row.addWidget(thinking_header)
-            thinking_row.addWidget(indicator)
-            thinking_row.addStretch(1)
-            layout.addLayout(thinking_row)
-            layout.addWidget(thinking_body)
+
+            def toggle_thinking(expanded: bool) -> None:
+                thinking_body.setVisible(expanded)
+                thinking_chevron.setPixmap(
+                    app_icon(
+                        "mdi6.chevron-down" if expanded else "mdi6.chevron-right",
+                        "#A9B3C3",
+                    ).pixmap(QSize(16, 16))
+                )
+
+            thinking_header.toggled.connect(toggle_thinking)
+            thinking_panel_layout.addLayout(thinking_header_row)
+            thinking_panel_layout.addWidget(thinking_body)
+            thinking_panel.setVisible(False)
+            layout.addWidget(thinking_panel)
+
             self._assistant_thinking_header = thinking_header
+            self._assistant_thinking_panel = thinking_panel
             self._assistant_thinking_body = thinking_body
-            self._assistant_thinking_indicator = indicator
+            self._assistant_thinking_status = thinking_status
+            self._assistant_thinking_chevron = thinking_chevron
+            self._assistant_thinking_indicator = thinking_indicator
+
         layout.addWidget(body)
-        alignment = Qt.AlignmentFlag.AlignRight if role == "user" else Qt.AlignmentFlag.AlignLeft
-        self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, card, alignment=alignment)
+        index = self.transcript_layout.count() - 1
+        if role == "user":
+            self.transcript_layout.insertWidget(index, card, alignment=Qt.AlignmentFlag.AlignRight)
+        else:
+            # Let assistant answers and their reasoning panels use the full transcript width.
+            self.transcript_layout.insertWidget(index, card)
         self.welcome.hide()
         QTimer.singleShot(0, self._scroll_to_bottom)
         return body
@@ -653,7 +716,10 @@ class ChatPage(QWidget):
         self.transcript_layout.addStretch(1)
         self._assistant_body = None
         self._assistant_thinking_header = None
+        self._assistant_thinking_panel = None
         self._assistant_thinking_body = None
+        self._assistant_thinking_status = None
+        self._assistant_thinking_chevron = None
         self._assistant_thinking_indicator = None
         self._active_assistant_message = None
 
@@ -684,10 +750,13 @@ class ChatPage(QWidget):
             )
             if role == "assistant":
                 thinking = str(message.get("thinking", ""))
-                if thinking and self._assistant_thinking_header and self._assistant_thinking_body:
+                if thinking and self._assistant_thinking_panel and self._assistant_thinking_body:
                     self._assistant_thinking_body.setPlainText(thinking)
-                    self._assistant_thinking_header.setVisible(True)
-                    self._assistant_thinking_header.setChecked(False)
+                    self._assistant_thinking_panel.setVisible(True)
+                    if self._assistant_thinking_status:
+                        self._assistant_thinking_status.setText("COMPLETED")
+                    if self._assistant_thinking_header:
+                        self._assistant_thinking_header.setChecked(False)
                 if message.get("error") and not message.get("content"):
                     body.setText(f'Unable to generate a response: {message["error"]}')
         QTimer.singleShot(0, self._scroll_to_bottom)
@@ -915,20 +984,36 @@ class ChatPage(QWidget):
             self._render_attachments()
 
     def _selected_think_value(self) -> bool | str | None:
-        if not self._think_supported or not self.think_button.isChecked():
+        if not self._think_supported:
             return None
+        if self._think_required:
+            if self._think_mode == "levels":
+                return (
+                    self.think_level_combo.currentData()
+                    or self._think_default
+                    or (self._think_values[0] if self._think_values else None)
+                )
+            return True
+        if not self.think_button.isChecked():
+            return False if False in self._think_values else None
         if self._think_mode == "levels":
             return self.think_level_combo.currentData() or self._think_default
         return True
 
     def _think_toggled(self, enabled: bool) -> None:
-        self.think_level_combo.setVisible(enabled and self._think_mode == "levels")
-        if enabled:
-            self.think_button.setText("Think on")
-            self.think_button.setToolTip("Model reasoning is enabled for this request.")
-        else:
-            self.think_button.setText("Think")
-            self.think_button.setToolTip("Request the model's thinking output.")
+        if self._think_required and not enabled:
+            self.think_button.blockSignals(True)
+            self.think_button.setChecked(True)
+            self.think_button.blockSignals(False)
+            return
+        self.think_level_combo.setVisible(
+            self._think_supported and self._think_mode == "levels"
+        )
+        self.think_button.setText("Think")
+        self.think_button.setToolTip(
+            "Model reasoning is enabled for this request."
+            if enabled else "Model reasoning is disabled for this request."
+        )
 
     def send_message(self) -> None:
         prompt = self.composer.toPlainText().strip()
@@ -999,6 +1084,7 @@ class ChatPage(QWidget):
         self.mic_button.setEnabled(False)
         self.attach_button.setEnabled(False)
         self.think_button.setEnabled(False)
+        self.think_level_combo.setEnabled(False)
         self._persist_current_conversation()
         self.worker = ChatWorker(
             self.endpoint, model_id, model_history, self.temperature,
@@ -1014,10 +1100,26 @@ class ChatPage(QWidget):
 
     def _on_thinking_chunk(self, chunk: str) -> None:
         self._thinking_text += chunk
-        if self._assistant_thinking_body:
-            self._assistant_thinking_body.setPlainText(self._thinking_text)
-        if self._assistant_thinking_header:
-            self._assistant_thinking_header.setVisible(True)
+        body = self._assistant_thinking_body
+        if body:
+            scrollbar = body.verticalScrollBar()
+            follow_tail = scrollbar.value() >= scrollbar.maximum() - 3
+            previous_position = scrollbar.value()
+            cursor = body.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.insertText(chunk)
+            body.setTextCursor(cursor)
+            if follow_tail:
+                QTimer.singleShot(0, lambda bar=scrollbar: bar.setValue(bar.maximum()))
+            else:
+                QTimer.singleShot(
+                    0,
+                    lambda bar=scrollbar, value=previous_position: bar.setValue(value),
+                )
+        if self._assistant_thinking_panel:
+            self._assistant_thinking_panel.setVisible(True)
+        if self._assistant_thinking_status:
+            self._assistant_thinking_status.setText("LIVE")
         if self._assistant_thinking_indicator:
             self._assistant_thinking_indicator.set_running(True)
         if self._active_assistant_message is not None:
@@ -1031,8 +1133,10 @@ class ChatPage(QWidget):
             self._assistant_body.setText(self._streaming_text)
         if self._assistant_thinking_indicator:
             self._assistant_thinking_indicator.set_running(False)
-        if self._assistant_thinking_header:
-            self._assistant_thinking_header.setVisible(bool(self._thinking_text))
+        if self._assistant_thinking_status and self._thinking_text:
+            self._assistant_thinking_status.setText("COMPLETED")
+        if self._assistant_thinking_panel:
+            self._assistant_thinking_panel.setVisible(bool(self._thinking_text))
         if self._active_assistant_message is not None:
             self._active_assistant_message["content"] = self._streaming_text
         self._schedule_history_save()
@@ -1046,8 +1150,10 @@ class ChatPage(QWidget):
             self._assistant_body.setText("The model returned an empty response.")
         if self._assistant_thinking_indicator:
             self._assistant_thinking_indicator.set_running(False)
-        if self._assistant_thinking_header:
-            self._assistant_thinking_header.setVisible(bool(self._thinking_text))
+        if self._assistant_thinking_status and self._thinking_text:
+            self._assistant_thinking_status.setText("COMPLETED")
+        if self._assistant_thinking_panel:
+            self._assistant_thinking_panel.setVisible(bool(self._thinking_text))
         self.save_current_conversation()
 
     def _on_failed(self, message: str) -> None:
@@ -1059,8 +1165,10 @@ class ChatPage(QWidget):
             self._active_assistant_message["error"] = message
         if self._assistant_thinking_indicator:
             self._assistant_thinking_indicator.set_running(False)
-        if self._assistant_thinking_header:
-            self._assistant_thinking_header.setVisible(bool(self._thinking_text))
+        if self._assistant_thinking_status and self._thinking_text:
+            self._assistant_thinking_status.setText("STOPPED")
+        if self._assistant_thinking_panel:
+            self._assistant_thinking_panel.setVisible(bool(self._thinking_text))
         self.save_current_conversation()
 
     def _worker_finished(self) -> None:
@@ -1070,7 +1178,8 @@ class ChatPage(QWidget):
         self.mic_button.setEnabled(True)
         self.send_button.setEnabled(self.model_combo.count() > 0)
         self.attach_button.setEnabled(True)
-        self.think_button.setEnabled(self._think_supported)
+        self.think_button.setEnabled(self._think_supported and not self._think_required)
+        self.think_level_combo.setEnabled(self._think_supported and self._think_mode == "levels")
         self.composer.setFocus()
         self.save_current_conversation()
         self.worker = None
