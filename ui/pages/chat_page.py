@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QTimer, QSize
+from datetime import datetime, timezone
+import uuid
+
+from PySide6.QtCore import Qt, Signal, QTimer, QSize, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
-    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QComboBox, QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser,
+    QVBoxLayout, QWidget,
 )
 
 from core.attachments import AttachmentError, prepare_attachment
+from core.chat_history import ChatHistoryStore
 
 from core.secrets import SecretStoreError
 from core.settings import SettingsStore
@@ -48,7 +53,46 @@ class PromptComposer(QPlainTextEdit):
         super().keyPressEvent(event)
 
 
+class ThinkingIndicator(QWidget):
+    """Three softly pulsing dots shown while a response is being generated."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self._animations: list[QPropertyAnimation] = []
+        for index in range(3):
+            dot = QLabel("●", self)
+            dot.setObjectName("ThinkingDot")
+            effect = QGraphicsOpacityEffect(dot)
+            effect.setOpacity(0.22)
+            dot.setGraphicsEffect(effect)
+            layout.addWidget(dot)
+            animation = QPropertyAnimation(effect, b"opacity", self)
+            animation.setDuration(900)
+            animation.setStartValue(0.22)
+            animation.setKeyValueAt(0.5, 1.0)
+            animation.setEndValue(0.22)
+            animation.setLoopCount(-1)
+            animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+            self._animations.append(animation)
+            animation.start()
+            animation.setCurrentTime(index * 210)
+        self.hide()
+
+    def set_running(self, running: bool) -> None:
+        self.setVisible(running)
+        for animation in self._animations:
+            if running and animation.state() != animation.State.Running:
+                animation.start()
+            elif not running:
+                animation.stop()
+
+
 class ChatPage(QWidget):
+    conversations_changed = Signal(list)
+
     def __init__(self, endpoint: str, temperature: float = 0.7, settings: SettingsStore | None = None,
                  whisper_manager: WhisperModelManager | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -56,6 +100,14 @@ class ChatPage(QWidget):
         self.temperature = temperature
         self.settings = settings or SettingsStore()
         self.whisper_manager = whisper_manager or WhisperModelManager(self.settings.speech_models_directory)
+        self.history_store = ChatHistoryStore()
+        self.conversations: list[dict] = self.history_store.load()
+        self.active_conversation: dict | None = None
+        self._active_assistant_message: dict | None = None
+        self._history_save_timer = QTimer(self)
+        self._history_save_timer.setSingleShot(True)
+        self._history_save_timer.setInterval(450)
+        self._history_save_timer.timeout.connect(self._persist_current_conversation)
         self.api_profiles: list[dict] = []
         self.local_models: list[dict] = []
         self.history: list[dict[str, object]] = []
@@ -73,7 +125,8 @@ class ChatPage(QWidget):
         self.recorder = AudioRecorder(self)
         self._assistant_body: QLabel | None = None
         self._assistant_thinking_header: QPushButton | None = None
-        self._assistant_thinking_body: QLabel | None = None
+        self._assistant_thinking_body: QTextBrowser | None = None
+        self._assistant_thinking_indicator: ThinkingIndicator | None = None
         self._streaming_text = ""
         self._thinking_text = ""
 
@@ -95,17 +148,14 @@ class ChatPage(QWidget):
         header.addLayout(heading)
         header.addStretch()
         self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(275)
-        self.model_combo.setMinimumHeight(40)
-        self.model_combo.setPlaceholderText("Select a model")
+        self.model_combo.setObjectName("ModelPicker")
+        self.model_combo.setMinimumWidth(175)
+        self.model_combo.setMaximumWidth(225)
+        self.model_combo.setFixedHeight(36)
+        self.model_combo.setMinimumContentsLength(12)
+        self.model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.model_combo.setPlaceholderText("Select model")
         self.model_combo.currentIndexChanged.connect(self._on_model_selection_changed)
-        self.new_chat_button = QPushButton("New chat")
-        self.new_chat_button.setIcon(app_icon("mdi6.plus", "#B7BEC9"))
-        self.new_chat_button.setIconSize(QSize(16, 16))
-        self.new_chat_button.setObjectName("GhostButton")
-        self.new_chat_button.clicked.connect(self.new_chat)
-        header.addWidget(self.model_combo)
-        header.addWidget(self.new_chat_button)
         root.addLayout(header)
 
         self.scroll = QScrollArea()
@@ -163,10 +213,12 @@ class ChatPage(QWidget):
         composer_layout.addWidget(self.composer)
 
         action_row = QHBoxLayout()
-        self.attach_button = QPushButton("Attach")
-        self.attach_button.setIcon(app_icon("mdi6.paperclip", "#B7BEC9"))
-        self.attach_button.setIconSize(QSize(16, 16))
-        self.attach_button.setObjectName("GhostButton")
+        self.attach_button = QPushButton()
+        self.attach_button.setIcon(app_icon("mdi6.plus", "#D7DCE6"))
+        self.attach_button.setIconSize(QSize(18, 18))
+        self.attach_button.setObjectName("AddAttachmentButton")
+        self.attach_button.setFixedSize(36, 36)
+        self.attach_button.setToolTip("Add images or files")
         self.attach_button.clicked.connect(self._choose_attachments)
         self.think_button = QPushButton("Think")
         self.think_button.setIcon(app_icon("mdi6.brain", "#B7BEC9"))
@@ -190,6 +242,7 @@ class ChatPage(QWidget):
         self.send_button.setObjectName("PrimaryButton")
         self.send_button.clicked.connect(self.send_message)
         action_row.addWidget(self.attach_button)
+        action_row.addWidget(self.model_combo)
         action_row.addWidget(self.think_button)
         action_row.addWidget(self.think_level_combo)
         action_row.addWidget(self.hint, 1)
@@ -197,6 +250,11 @@ class ChatPage(QWidget):
         action_row.addWidget(self.send_button)
         composer_layout.addLayout(action_row)
         root.addWidget(composer_card)
+
+        if self.conversations:
+            latest = max(self.conversations, key=lambda item: str(item.get("updated_at", "")))
+            self.open_conversation(str(latest.get("id", "")))
+        self._emit_conversations_changed()
 
     def set_endpoint(self, endpoint: str) -> None:
         self.endpoint = endpoint
@@ -217,6 +275,9 @@ class ChatPage(QWidget):
         self.local_models = list(models)
         self._rebuild_model_list()
 
+    def notify_conversations_changed(self) -> None:
+        self._emit_conversations_changed()
+
     def _rebuild_model_list(self) -> None:
         previous = self.model_combo.currentData()
         self.model_combo.blockSignals(True)
@@ -234,9 +295,12 @@ class ChatPage(QWidget):
                         f"{profile.get('name', 'API')}  ·  {model.get('name') or model_id}",
                         {"source": "remote", "profile_id": profile["id"], "model_id": model_id},
                     )
-        if previous is not None:
+        preferred = previous
+        if preferred is None and self.active_conversation:
+            preferred = self.active_conversation.get("model_selection")
+        if preferred is not None:
             for index in range(self.model_combo.count()):
-                if self.model_combo.itemData(index) == previous:
+                if self.model_combo.itemData(index) == preferred:
                     self.model_combo.setCurrentIndex(index)
                     break
         self.model_combo.blockSignals(False)
@@ -245,6 +309,9 @@ class ChatPage(QWidget):
 
     def _on_model_selection_changed(self, _index: int = -1) -> None:
         self._update_model_hint()
+        if self.active_conversation and self.model_combo.currentData():
+            self.active_conversation["model_selection"] = dict(self.model_combo.currentData())
+            self._schedule_history_save()
 
     def _set_model_features(
         self, vision: bool, think_values: list[object] | None = None, think_default: object = None,
@@ -382,42 +449,58 @@ class ChatPage(QWidget):
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 12, 16, 13)
-        layout.setSpacing(6)
+        layout.setSpacing(7)
         label = QLabel("You" if role == "user" else "Assistant")
         label.setObjectName("Muted")
-        label.setStyleSheet("font-size: 11px; font-weight: 700; color: #a9a1db;" if role == "user" else "font-size: 11px; font-weight: 700;")
-        body = QLabel(text or ("Thinking…" if streaming else ""))
+        label.setStyleSheet(
+            "font-size: 11px; font-weight: 700; color: #D9E8FA;"
+            if role == "user" else "font-size: 11px; font-weight: 700; color: #9CA3AF;"
+        )
+        body = QLabel(text or ("Generating…" if streaming else ""))
         body.setWordWrap(True)
         body.setTextFormat(Qt.TextFormat.PlainText)
         body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body.setMinimumHeight(22)
-        body.setStyleSheet("font-size: 13px; line-height: 1.5; color: #eceef5;")
+        body.setStyleSheet(
+            "font-size: 13px; line-height: 1.5; color: #FFFFFF;"
+            if role == "user" else "font-size: 13px; line-height: 1.5; color: #E8EAF0;"
+        )
         layout.addWidget(label)
         if attachments:
             attachment_row = QHBoxLayout()
             for attachment in attachments:
-                chip = QLabel(f'{attachment.get("name", "Attachment")}  ·  {attachment.get("kind", "file").upper()}')
+                chip = QLabel(
+                    f'{attachment.get("name", "Attachment")}  ·  {attachment.get("kind", "file").upper()}'
+                )
                 chip.setObjectName("AttachmentMessageChip")
                 attachment_row.addWidget(chip)
             attachment_row.addStretch()
             layout.addLayout(attachment_row)
         if role == "assistant":
-            thinking_header = QPushButton("Thinking")
+            thinking_row = QHBoxLayout()
+            thinking_header = QPushButton("Thinking process")
             thinking_header.setIcon(app_icon("mdi6.brain", "#AFA4E8"))
             thinking_header.setObjectName("ThinkingHeader")
             thinking_header.setCheckable(True)
             thinking_header.setChecked(False)
             thinking_header.setVisible(False)
-            thinking_body = QLabel("")
+            thinking_body = QTextBrowser()
             thinking_body.setObjectName("ThinkingBody")
-            thinking_body.setWordWrap(True)
-            thinking_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            thinking_body.hide()
+            thinking_body.setReadOnly(True)
+            thinking_body.setOpenExternalLinks(False)
+            thinking_body.setMaximumHeight(250)
+            thinking_body.setVisible(False)
             thinking_header.toggled.connect(thinking_body.setVisible)
-            layout.addWidget(thinking_header)
+            indicator = ThinkingIndicator(card)
+            indicator.set_running(streaming)
+            thinking_row.addWidget(thinking_header)
+            thinking_row.addWidget(indicator)
+            thinking_row.addStretch(1)
+            layout.addLayout(thinking_row)
             layout.addWidget(thinking_body)
             self._assistant_thinking_header = thinking_header
             self._assistant_thinking_body = thinking_body
+            self._assistant_thinking_indicator = indicator
         layout.addWidget(body)
         alignment = Qt.AlignmentFlag.AlignRight if role == "user" else Qt.AlignmentFlag.AlignLeft
         self.transcript_layout.insertWidget(self.transcript_layout.count() - 1, card, alignment=alignment)
@@ -429,24 +512,169 @@ class ChatPage(QWidget):
         bar = self.scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
 
-    def new_chat(self) -> None:
-        if self.worker and self.worker.isRunning():
+    def _emit_conversations_changed(self) -> None:
+        items = []
+        for conversation in sorted(
+            self.conversations,
+            key=lambda item: str(item.get("updated_at", "")),
+            reverse=True,
+        ):
+            items.append({
+                "id": str(conversation.get("id", "")),
+                "title": str(conversation.get("title") or "New chat"),
+                "updated_at": str(conversation.get("updated_at", "")),
+                "active": bool(
+                    self.active_conversation
+                    and conversation.get("id") == self.active_conversation.get("id")
+                ),
+            })
+        self.conversations_changed.emit(items)
+
+    def _ensure_conversation(self, title: str, selection: dict) -> None:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        if self.active_conversation is None:
+            self.active_conversation = {
+                "id": uuid.uuid4().hex,
+                "title": (title.strip().splitlines()[0][:52] if title.strip() else "New chat"),
+                "created_at": now,
+                "updated_at": now,
+                "model_selection": dict(selection),
+                "messages": self.history,
+            }
+            self.conversations.append(self.active_conversation)
+        else:
+            if len(self.history) <= 1:
+                self.active_conversation["title"] = (
+                    title.strip().splitlines()[0][:52] if title.strip() else "New chat"
+                )
+            self.active_conversation["model_selection"] = dict(selection)
+            self.active_conversation["messages"] = self.history
+
+    def _schedule_history_save(self) -> None:
+        if self.active_conversation is not None:
+            self._history_save_timer.start()
+
+    def _persist_current_conversation(self) -> None:
+        if self.active_conversation is None or not self.history:
+            self._emit_conversations_changed()
             return
-        self.history.clear()
-        while self.transcript_layout.count() > 1:
+        self.active_conversation["messages"] = self.history
+        self.active_conversation["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        try:
+            self.history_store.save(self.conversations)
+        except (OSError, TypeError, ValueError) as exc:
+            self.hint.setText(f"Could not save chat history: {exc}")
+        self._emit_conversations_changed()
+
+    def save_current_conversation(self) -> None:
+        """Flush pending streaming updates before the application closes."""
+        self._history_save_timer.stop()
+        self._persist_current_conversation()
+
+    @staticmethod
+    def _messages_for_model(messages: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Keep private UI metadata out of model context while preserving image inputs."""
+        model_messages = []
+        for message in messages:
+            clean = {
+                key: message[key]
+                for key in ("role", "content", "images")
+                if key in message
+            }
+            if clean:
+                model_messages.append(clean)
+        return model_messages
+
+    def _clear_transcript(self) -> None:
+        while self.transcript_layout.count():
             item = self.transcript_layout.takeAt(0)
             widget = item.widget()
             if widget and widget is not self.welcome:
                 widget.deleteLater()
-        self.transcript_layout.insertWidget(0, self.welcome)
-        self.welcome.show()
+        self.transcript_layout.addStretch(1)
         self._assistant_body = None
         self._assistant_thinking_header = None
         self._assistant_thinking_body = None
-        self._streaming_text = ""
-        self._thinking_text = ""
+        self._assistant_thinking_indicator = None
+        self._active_assistant_message = None
+
+    def _render_conversation(self) -> None:
+        self._clear_transcript()
+        if not self.history:
+            self.transcript_layout.insertWidget(0, self.welcome)
+            self.welcome.show()
+            return
+        self.welcome.hide()
+        for message in self.history:
+            role = str(message.get("role", "assistant"))
+            if role not in {"user", "assistant"}:
+                continue
+            attachments = message.get("attachments")
+            if not isinstance(attachments, list):
+                attachments = []
+            if role == "user" and not attachments:
+                attachments = [
+                    {"name": image.get("name", "Image"), "kind": "image"}
+                    for image in message.get("images", [])
+                    if isinstance(image, dict)
+                ]
+            body = self._add_message(
+                role,
+                str(message.get("content", "")),
+                attachments=attachments,
+            )
+            if role == "assistant":
+                thinking = str(message.get("thinking", ""))
+                if thinking and self._assistant_thinking_header and self._assistant_thinking_body:
+                    self._assistant_thinking_body.setPlainText(thinking)
+                    self._assistant_thinking_header.setVisible(True)
+                    self._assistant_thinking_header.setChecked(False)
+                if message.get("error") and not message.get("content"):
+                    body.setText(f'Unable to generate a response: {message["error"]}')
+        QTimer.singleShot(0, self._scroll_to_bottom)
+
+    def open_conversation(self, conversation_id: str) -> bool:
+        if self.worker and self.worker.isRunning():
+            return False
+        conversation = next(
+            (item for item in self.conversations if item.get("id") == conversation_id),
+            None,
+        )
+        if conversation is None:
+            return False
+        self._history_save_timer.stop()
+        self.active_conversation = conversation
+        messages = conversation.get("messages", [])
+        self.history = messages if isinstance(messages, list) else []
+        preferred = conversation.get("model_selection")
+        if isinstance(preferred, dict):
+            self.model_combo.blockSignals(True)
+            for index in range(self.model_combo.count()):
+                if self.model_combo.itemData(index) == preferred:
+                    self.model_combo.setCurrentIndex(index)
+                    break
+            self.model_combo.blockSignals(False)
         self.attachments.clear()
         self._render_attachments()
+        self._render_conversation()
+        self._update_model_hint()
+        self.hint.setText(f'Saved conversation · {len(self.history)} messages')
+        self._emit_conversations_changed()
+        return True
+
+    def new_chat(self) -> None:
+        if self.worker and self.worker.isRunning():
+            return
+        self.save_current_conversation()
+        self.active_conversation = None
+        self.history = []
+        self.attachments.clear()
+        self._streaming_text = ""
+        self._thinking_text = ""
+        self._active_assistant_message = None
+        self._render_attachments()
+        self._render_conversation()
+        self._emit_conversations_changed()
 
     def _toggle_voice_input(self) -> None:
         if self.transcription_worker and self.transcription_worker.isRunning():
@@ -637,7 +865,13 @@ class ChatPage(QWidget):
     def send_message(self) -> None:
         prompt = self.composer.toPlainText().strip()
         selection = self.model_combo.currentData()
-        if (not prompt and not self.attachments) or not selection or (self.worker and self.worker.isRunning()) or self.recorder.is_recording or (self.transcription_worker and self.transcription_worker.isRunning()):
+        if (
+            (not prompt and not self.attachments)
+            or not selection
+            or (self.worker and self.worker.isRunning())
+            or self.recorder.is_recording
+            or (self.transcription_worker and self.transcription_worker.isRunning())
+        ):
             return
         if any(item.get("kind") == "image" for item in self.attachments) and not self._active_model_supports_vision:
             self.hint.setText("The selected model does not support image input. Select a vision-capable model.")
@@ -672,11 +906,20 @@ class ChatPage(QWidget):
                 self.hint.setText("API key missing. Update this connection in Settings.")
                 return
 
-        user_message: dict[str, object] = {"role": "user", "content": prompt}
+        selected_think = self._selected_think_value() if not remote_profile else None
+        user_message: dict[str, object] = {
+            "role": "user",
+            "content": prompt,
+            "attachments": attachment_display,
+        }
         if image_payloads:
             user_message["images"] = image_payloads
         self.history.append(user_message)
+        self._ensure_conversation(prompt, selection)
         self._add_message("user", prompt, attachments=attachment_display)
+        model_history = self._messages_for_model(self.history)
+        self._active_assistant_message = {"role": "assistant", "content": "", "thinking": ""}
+        self.history.append(self._active_assistant_message)
         self._assistant_body = self._add_message("assistant", "", streaming=True)
         self._streaming_text = ""
         self._thinking_text = ""
@@ -688,10 +931,11 @@ class ChatPage(QWidget):
         self.mic_button.setEnabled(False)
         self.attach_button.setEnabled(False)
         self.think_button.setEnabled(False)
+        self._persist_current_conversation()
         self.worker = ChatWorker(
-            self.endpoint, model_id, list(self.history), self.temperature,
+            self.endpoint, model_id, model_history, self.temperature,
             remote_profile=remote_profile, api_key=api_key,
-            think=self._selected_think_value() if not remote_profile else None,
+            think=selected_think,
         )
         self.worker.chunk.connect(self._on_chunk)
         self.worker.thinking_chunk.connect(self._on_thinking_chunk)
@@ -703,36 +947,58 @@ class ChatPage(QWidget):
     def _on_thinking_chunk(self, chunk: str) -> None:
         self._thinking_text += chunk
         if self._assistant_thinking_body:
-            self._assistant_thinking_body.setText(self._thinking_text)
+            self._assistant_thinking_body.setPlainText(self._thinking_text)
         if self._assistant_thinking_header:
             self._assistant_thinking_header.setVisible(True)
+        if self._active_assistant_message is not None:
+            self._active_assistant_message["thinking"] = self._thinking_text
+        self._schedule_history_save()
         QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _on_chunk(self, chunk: str) -> None:
         self._streaming_text += chunk
         if self._assistant_body:
             self._assistant_body.setText(self._streaming_text)
+        if self._active_assistant_message is not None:
+            self._active_assistant_message["content"] = self._streaming_text
+        self._schedule_history_save()
         QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _on_completed(self, _metadata: dict) -> None:
-        if self._streaming_text:
-            self.history.append({"role": "assistant", "content": self._streaming_text})
-        elif self._assistant_body:
+        if self._active_assistant_message is not None:
+            self._active_assistant_message["content"] = self._streaming_text
+            self._active_assistant_message["thinking"] = self._thinking_text
+        if self._assistant_body and not self._streaming_text:
             self._assistant_body.setText("The model returned an empty response.")
+        if self._assistant_thinking_indicator:
+            self._assistant_thinking_indicator.set_running(False)
+        if self._assistant_thinking_header:
+            self._assistant_thinking_header.setVisible(bool(self._thinking_text))
+        self.save_current_conversation()
 
     def _on_failed(self, message: str) -> None:
         if self._assistant_body:
             self._assistant_body.setText(f"Unable to generate a response: {message}")
-        if self._streaming_text:
-            self.history.append({"role": "assistant", "content": self._streaming_text})
+        if self._active_assistant_message is not None:
+            self._active_assistant_message["content"] = self._streaming_text
+            self._active_assistant_message["thinking"] = self._thinking_text
+            self._active_assistant_message["error"] = message
+        if self._assistant_thinking_indicator:
+            self._assistant_thinking_indicator.set_running(False)
+        if self._assistant_thinking_header:
+            self._assistant_thinking_header.setVisible(bool(self._thinking_text))
+        self.save_current_conversation()
 
     def _worker_finished(self) -> None:
+        if self._assistant_thinking_indicator:
+            self._assistant_thinking_indicator.set_running(False)
         self.composer.setEnabled(True)
         self.mic_button.setEnabled(True)
         self.send_button.setEnabled(self.model_combo.count() > 0)
         self.attach_button.setEnabled(True)
         self.think_button.setEnabled(self._think_supported)
         self.composer.setFocus()
+        self.save_current_conversation()
         self.worker = None
 
     def insert_voice_text(self, text: str) -> None:
