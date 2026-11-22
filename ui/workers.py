@@ -99,6 +99,7 @@ class ChatWorker(QThread):
     thinking_chunk = Signal(str)
     completed = Signal(dict)
     failed = Signal(str)
+    cancelled = Signal()
 
     def __init__(
         self, endpoint: str, model_name: str, messages: list[dict[str, Any]],
@@ -113,47 +114,91 @@ class ChatWorker(QThread):
         self.remote_profile = remote_profile
         self.api_key = api_key
         self.think = think
+        self._cancel_event = threading.Event()
+        self._client: Any | None = None
+        self._client_lock = threading.Lock()
+
+    def cancel(self) -> None:
+        """Request cancellation and close the active HTTP response if one exists."""
+        self._cancel_event.set()
+        with self._client_lock:
+            client = self._client
+        if client is not None:
+            client.cancel_chat()
+
+    def _set_client(self, client: Any) -> None:
+        with self._client_lock:
+            self._client = client
+        if self._cancel_event.is_set():
+            client.cancel_chat()
+
+    def _clear_client(self, client: Any) -> None:
+        with self._client_lock:
+            if self._client is client:
+                self._client = None
 
     def run(self) -> None:
         final_event: dict[str, Any] = {}
+        client: Any | None = None
         try:
             if self.remote_profile:
                 client = RemoteProviderClient(self.remote_profile, self.api_key, timeout=30)
-                try:
-                    for content in client.chat_stream(self.model_name, self.messages, self.temperature):
+                self._set_client(client)
+                if not self._cancel_event.is_set():
+                    for content in client.chat_stream(
+                        self.model_name, self.messages, self.temperature,
+                        cancel_event=self._cancel_event,
+                    ):
+                        if self._cancel_event.is_set():
+                            break
                         if content:
                             self.chunk.emit(content)
-                    self.completed.emit(final_event)
-                finally:
-                    client.close()
-                return
-            ollama_messages = []
-            for message in self.messages:
-                item = {"role": message.get("role", "user"), "content": message.get("content", "")}
-                images = message.get("images") or []
-                if images:
-                    item["images"] = [image.get("data", "") if isinstance(image, dict) else image for image in images]
-                ollama_messages.append(item)
-            client = OllamaClient(self.endpoint, timeout=30)
-            try:
-                for event in client.chat_stream(
-                    self.model_name, ollama_messages,
-                    {"temperature": self.temperature}, think=self.think,
-                ):
-                    message = event.get("message", {}) or {}
-                    thinking = message.get("thinking", "")
-                    content = message.get("content", "")
-                    if thinking:
-                        self.thinking_chunk.emit(thinking)
-                    if content:
-                        self.chunk.emit(content)
-                    if event.get("done"):
-                        final_event = event
+            else:
+                client = OllamaClient(self.endpoint, timeout=30)
+                self._set_client(client)
+                ollama_messages = []
+                for message in self.messages:
+                    item = {"role": message.get("role", "user"), "content": message.get("content", "")}
+                    images = message.get("images") or []
+                    if images:
+                        item["images"] = [
+                            image.get("data", "") if isinstance(image, dict) else image
+                            for image in images
+                        ]
+                    ollama_messages.append(item)
+                if not self._cancel_event.is_set():
+                    for event in client.chat_stream(
+                        self.model_name, ollama_messages,
+                        {"temperature": self.temperature}, think=self.think,
+                        cancel_event=self._cancel_event,
+                    ):
+                        if self._cancel_event.is_set():
+                            break
+                        message = event.get("message", {}) or {}
+                        thinking = message.get("thinking", "")
+                        content = message.get("content", "")
+                        if thinking:
+                            self.thinking_chunk.emit(thinking)
+                        if content:
+                            self.chunk.emit(content)
+                        if event.get("done"):
+                            final_event = event
+            if self._cancel_event.is_set():
+                self.cancelled.emit()
+            else:
                 self.completed.emit(final_event)
-            finally:
-                client.close()
         except Exception as exc:
-            self.failed.emit(str(exc))
+            if self._cancel_event.is_set():
+                self.cancelled.emit()
+            else:
+                self.failed.emit(str(exc))
+        finally:
+            if client is not None:
+                self._clear_client(client)
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
 
 class ModelCapabilitiesWorker(QThread):
