@@ -522,9 +522,9 @@ class ModelsPage(QWidget):
         worker.failed.connect(lambda error, name=model_name: self._on_download_failed(name, error))
         worker.cancelled.connect(lambda name: self._on_download_cancelled(name))
         worker.finished.connect(lambda name=model_name: self._cleanup_worker(name))
-        self._update_jobs_panel()
         self.jobs_scroll.verticalScrollBar().setValue(self.jobs_scroll.verticalScrollBar().maximum())
         worker.start()
+        self._update_jobs_panel()
         self.status_message.emit(f"Started downloading {model_name}.")
 
     def _cancel_download(self, model_name: str) -> None:
