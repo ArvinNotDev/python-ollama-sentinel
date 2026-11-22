@@ -1,9 +1,23 @@
-from ui.ui import MainWindow
 import sys
-from PyQt5.QtWidgets import QApplication
+
+from PySide6.QtWidgets import QApplication
+
+from core.settings import SettingsStore
+from ui.main_window import MainWindow
+from ui.theme import APP_STYLESHEET
+
+
+def main() -> int:
+    app = QApplication(sys.argv)
+    app.setApplicationName("Ollama Sentinel")
+    app.setOrganizationName("ArvinNotDev")
+    app.setStyle("Fusion")
+    app.setStyleSheet(APP_STYLESHEET)
+
+    window = MainWindow(SettingsStore())
+    window.show()
+    return app.exec()
+
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    raise SystemExit(main())
