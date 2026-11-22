@@ -71,6 +71,36 @@ class RemoteProviderTests(unittest.TestCase):
         )
         self.assertEqual(client.list_models(), [{"id": "gemini-x", "name": "Gemini X"}])
 
+    def test_cancel_active_provider_stream_closes_response(self):
+        session = MagicMock()
+        client = RemoteProviderClient(
+            {"provider": "openai", "base_url": "https://api.openai.com/v1"},
+            "secret", session=session,
+        )
+        response = MagicMock()
+        client._active_response = response
+        client.cancel_chat()
+        response.close.assert_called_once()
+        client._active_response = None
+        client.close()
+
+    def test_provider_cancelled_before_request_starts(self):
+        import threading
+        session = MagicMock()
+        client = RemoteProviderClient(
+            {"provider": "openai", "base_url": "https://api.openai.com/v1"},
+            "secret", session=session,
+        )
+        cancel_event = threading.Event()
+        cancel_event.set()
+        self.assertEqual(
+            list(client.chat_stream("gpt-test", [{"role": "user", "content": "hi"}],
+                                    cancel_event=cancel_event)),
+            [],
+        )
+        session.request.assert_not_called()
+        client.close()
+
     def test_openai_stream_extracts_delta_text(self):
         session = MagicMock()
         response = FakeResponse(lines=[
