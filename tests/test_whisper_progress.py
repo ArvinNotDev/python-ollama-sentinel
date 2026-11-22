@@ -1,3 +1,4 @@
+import io
 import unittest
 
 from core.speech.whisper_manager import _ProgressTqdm
@@ -12,7 +13,9 @@ class WhisperProgressTests(unittest.TestCase):
             progress = _ProgressTqdm(
                 total=10,
                 name="huggingface_hub.snapshot_download",
-                disable=True,
+                disable=False,
+                file=io.StringIO(),
+                leave=False,
             )
             progress.update(4)
             progress.close()
