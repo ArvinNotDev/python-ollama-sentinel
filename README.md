@@ -8,6 +8,10 @@ A polished desktop workspace for local Ollama models and remote AI API providers
 
 - Local Ollama model discovery, pull progress, installed model library and model removal.
 - Chat with local Ollama models or connected remote API models from one model selector.
+- Chat input uses a ChatGPT-style auto-growing capsule with a compact model picker, attachment button, Think control, microphone and circular send action.
+- Model discovery displays each exact Ollama tag as a specification card with its own download button, including published size, context and input details when available.
+- The **Move Models** setting safely relocates the local Ollama model directory after the local server is stopped, then saves the new path for app-managed launches.
+- Whisper downloads use a progress-bar adapter compatible with Hugging Face Hub's named download progress bars.
 - Persistent multi-conversation history, including complete message order, image attachments, document text and available model reasoning output; conversations are saved locally and restored on next launch.
 - Horizontal workspace tabs with a dedicated left-side chat history, a compact capsule model picker beside the attachment button, and vertically stacked message bubbles.
 - Vision input for compatible models, with automatic Ollama capability detection and image forwarding to supported remote APIs.
