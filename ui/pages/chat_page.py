@@ -969,6 +969,8 @@ class ChatPage(QWidget):
             self._assistant_thinking_body.setPlainText(self._thinking_text)
         if self._assistant_thinking_header:
             self._assistant_thinking_header.setVisible(True)
+        if self._assistant_thinking_indicator:
+            self._assistant_thinking_indicator.set_running(True)
         if self._active_assistant_message is not None:
             self._active_assistant_message["thinking"] = self._thinking_text
         self._schedule_history_save()
@@ -978,6 +980,10 @@ class ChatPage(QWidget):
         self._streaming_text += chunk
         if self._assistant_body:
             self._assistant_body.setText(self._streaming_text)
+        if self._assistant_thinking_indicator:
+            self._assistant_thinking_indicator.set_running(False)
+        if self._assistant_thinking_header:
+            self._assistant_thinking_header.setVisible(bool(self._thinking_text))
         if self._active_assistant_message is not None:
             self._active_assistant_message["content"] = self._streaming_text
         self._schedule_history_save()
