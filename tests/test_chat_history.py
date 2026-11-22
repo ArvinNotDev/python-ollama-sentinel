@@ -62,6 +62,24 @@ class ChatHistoryStoreTests(unittest.TestCase):
             path.write_text("{broken", encoding="utf-8")
             self.assertEqual(store.load(), [])
 
+    def test_corrupt_history_is_backed_up_before_new_history_is_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "chats.json"
+            original = b'{"conversations": [broken'
+            path.write_bytes(original)
+            store = ChatHistoryStore(path)
+
+            self.assertEqual(store.load(), [])
+            backups = list(Path(directory).glob("chats.json.corrupt-*.bak"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_bytes(), original)
+            self.assertIn(backups[0].name, store.load_warning)
+
+            store.save([{"id": "new-chat", "messages": []}])
+
+            self.assertEqual(store.load()[0]["id"], "new-chat")
+            self.assertEqual(backups[0].read_bytes(), original)
+
     def test_invalid_conversation_entries_are_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "chats.json"
