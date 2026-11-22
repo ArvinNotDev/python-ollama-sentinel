@@ -48,6 +48,12 @@ _DOWNLOAD_LOCK = threading.Lock()
 class _ProgressTqdm(tqdm):
     callback: Callable[[int, int], None] | None = None
 
+    def __init__(self, *args, **kwargs):
+        # huggingface_hub 1.x supplies a named progress-bar identifier. Classic
+        # tqdm does not accept it, so consume it before initializing tqdm.
+        kwargs.pop("name", None)
+        super().__init__(*args, **kwargs)
+
     def update(self, n=1):
         result = super().update(n)
         callback = type(self).callback
