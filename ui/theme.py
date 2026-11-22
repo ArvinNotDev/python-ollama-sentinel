@@ -36,10 +36,28 @@ QPushButton#NavButton {
 }
 QPushButton#NavButton:hover { color: #F0F1F4; background: #22252C; }
 QPushButton#NavButton:checked { color: #F7F5FF; background: #292538; border: 1px solid #403958; }
+QPushButton#NavTab {
+    color: #A9AFBB; background: transparent; border: 1px solid transparent;
+    border-radius: 18px; padding: 6px 13px; min-height: 16px; font-weight: 600;
+}
+QPushButton#NavTab:hover { color: #F0F1F4; background: #252932; }
+QPushButton#NavTab:checked { color: #F7F5FF; background: #302B40; border-color: #49415F; }
+QPushButton#NewChatButton {
+    color: #FFFFFF; background: #6555A8; border: 1px solid #7A6BC0;
+    border-radius: 11px; padding: 8px 13px; text-align: left; font-weight: 650;
+}
+QPushButton#NewChatButton:hover { background: #7565BD; border-color: #9182D4; }
 QPushButton#GhostButton { color: #C8CBD4; background: transparent; border: 1px solid #383D47; }
 QPushButton#GhostButton:hover { color: #FFFFFF; background: #252932; border-color: #505663; }
 QPushButton#DangerButton { color: #F09BA4; background: #302126; border: 1px solid #55333D; }
 QPushButton#DangerButton:hover { background: #3B252D; border-color: #70404C; }
+QComboBox#ModelPicker {
+    color: #E8EAF0; background: #252A33; border: 1px solid #414855;
+    border-radius: 18px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+}
+QComboBox#ModelPicker:hover { background: #2B303A; border-color: #5B6372; }
+QComboBox#ModelPicker:focus { border-color: #8373D8; }
+QComboBox#ModelPicker::drop-down { width: 21px; }
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
     color: #E8EAF0; background: #20242B; border: 1px solid #343A45;
     border-radius: 10px; padding: 9px 11px; selection-background-color: #6455A9; selection-color: #FFFFFF;
@@ -65,7 +83,7 @@ QFrame#Surface, QFrame#ModelCard, QFrame#MessageCard, QFrame#SettingCard, QFrame
     background: #20242B; border: 1px solid #2F343E; border-radius: 15px;
 }
 QFrame#HeroCard { background: #22232B; border: 1px solid #343741; border-radius: 16px; }
-QFrame#UserMessage { background: #292D35; border: 1px solid #373D48; border-radius: 14px; }
+QFrame#UserMessage { background: #173e76; border: 1px solid #28558F; border-radius: 14px; }
 QFrame#AssistantMessage { background: transparent; border: 1px solid transparent; border-radius: 12px; }
 QProgressBar { height: 8px; border: none; border-radius: 4px; background: #343A44; text-align: center; color: transparent; }
 QProgressBar::chunk { border-radius: 4px; background: #8876D9; }
@@ -111,6 +129,11 @@ QListWidget#ModelCatalogList::item:selected {
     border: 1px solid #4A4263;
 }
 QScrollArea#AttachmentStrip { background: transparent; border: none; }
+QPushButton#AddAttachmentButton {
+    color: #E4E8F0; background: #2A303A; border: 1px solid #414957;
+    border-radius: 18px; padding: 4px; min-width: 28px; min-height: 28px;
+}
+QPushButton#AddAttachmentButton:hover { color: #FFFFFF; background: #363D49; border-color: #596374; }
 QFrame#AttachmentChip {
     color: #DDE0E7; background: #292E37; border: 1px solid #3C424E; border-radius: 10px;
 }
@@ -129,9 +152,22 @@ QPushButton#ThinkingHeader {
     padding: 4px 2px; min-height: 16px;
 }
 QPushButton#ThinkingHeader:hover { color: #F0EBFF; background: transparent; }
-QLabel#ThinkingBody {
+QLabel#ThinkingDot { color: #C4B8F0; font-size: 8px; background: transparent; }
+QTextBrowser#ThinkingBody {
     color: #ADB4C1; background: #20242B; border: 1px solid #343A45;
-    border-radius: 10px; padding: 10px 12px;
+    border-radius: 10px; padding: 8px 10px;
+}
+QListWidget#ChatHistoryList {
+    color: #DDE0E7; background: transparent; border: none; outline: none;
+    padding: 3px 0;
+}
+QListWidget#ChatHistoryList::item {
+    color: #AEB5C2; background: transparent; border: 1px solid transparent;
+    border-radius: 9px; padding: 10px 11px; margin: 1px 0; min-height: 20px;
+}
+QListWidget#ChatHistoryList::item:hover { color: #F1F2F5; background: #22262E; }
+QListWidget#ChatHistoryList::item:selected {
+    color: #F5F2FF; background: #2B2939; border-color: #403A55;
 }
 """
 
