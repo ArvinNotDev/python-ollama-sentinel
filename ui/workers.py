@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 
 from core.ollama.ollama_commands import OllamaClient
 from core.providers import RemoteProviderClient
+from core.speech.whisper_manager import WhisperModelManager
 
 
 class PullWorker(QThread):
@@ -139,3 +141,52 @@ class ProviderModelsWorker(QThread):
                 client.close()
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class WhisperDownloadWorker(QThread):
+    progress = Signal(int, int)
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, manager: WhisperModelManager, model_name: str, parent=None) -> None:
+        super().__init__(parent)
+        self.manager = manager
+        self.model_name = model_name
+
+    def run(self) -> None:
+        try:
+            path = self.manager.download_model(
+                self.model_name,
+                progress_callback=lambda current, total: self.progress.emit(current, total),
+            )
+            self.completed.emit(str(path))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class WhisperTranscriptionWorker(QThread):
+    completed = Signal(str, str)
+    failed = Signal(str)
+
+    def __init__(
+        self, manager: WhisperModelManager, audio_path: str,
+        model_name: str = "base", language: str | None = None, parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.manager = manager
+        self.audio_path = audio_path
+        self.model_name = model_name
+        self.language = language
+
+    def run(self) -> None:
+        try:
+            text, detected_language = self.manager.transcribe(
+                self.audio_path, self.model_name, self.language
+            )
+            if not text:
+                raise RuntimeError("No speech was recognized. Try speaking closer to the microphone.")
+            self.completed.emit(text, detected_language)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        finally:
+            Path(self.audio_path).unlink(missing_ok=True)

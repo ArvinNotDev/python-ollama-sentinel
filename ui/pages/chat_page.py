@@ -2,19 +2,22 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from core.secrets import SecretStoreError
 from core.settings import SettingsStore
-from ui.workers import ChatWorker
+from core.speech.whisper_manager import WhisperModelManager
+from ui.audio_recorder import AudioRecorder
+from ui.mic_button import CircularMicButton
+from ui.workers import ChatWorker, WhisperDownloadWorker, WhisperTranscriptionWorker
 
 
 class PromptComposer(QPlainTextEdit):
     send_requested = Signal()
 
-    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+    def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.send_requested.emit()
             return
@@ -22,25 +25,30 @@ class PromptComposer(QPlainTextEdit):
 
 
 class ChatPage(QWidget):
-    def __init__(
-        self, endpoint: str, temperature: float = 0.7,
-        settings: SettingsStore | None = None, parent=None
-    ) -> None:
+    def __init__(self, endpoint: str, temperature: float = 0.7, settings: SettingsStore | None = None,
+                 whisper_manager: WhisperModelManager | None = None, parent=None) -> None:
         super().__init__(parent)
         self.endpoint = endpoint
         self.temperature = temperature
         self.settings = settings or SettingsStore()
+        self.whisper_manager = whisper_manager or WhisperModelManager(self.settings.speech_models_directory)
         self.api_profiles: list[dict] = []
         self.local_models: list[dict] = []
         self.history: list[dict[str, str]] = []
         self.worker: ChatWorker | None = None
+        self.whisper_download_worker: WhisperDownloadWorker | None = None
+        self.transcription_worker: WhisperTranscriptionWorker | None = None
+        self.recorder = AudioRecorder(self)
         self._assistant_body: QLabel | None = None
         self._streaming_text = ""
+
+        self.recorder.recording_changed.connect(self._on_recording_changed)
+        self.recorder.recording_finished.connect(self._on_recording_finished)
+        self.recorder.failed.connect(self._on_voice_error)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(34, 27, 34, 24)
         root.setSpacing(16)
-
         header = QHBoxLayout()
         heading = QVBoxLayout()
         title = QLabel("Chat")
@@ -51,7 +59,6 @@ class ChatPage(QWidget):
         heading.addWidget(subtitle)
         header.addLayout(heading)
         header.addStretch()
-
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(275)
         self.model_combo.setPlaceholderText("Select a model")
@@ -81,9 +88,7 @@ class ChatPage(QWidget):
         welcome_title = QLabel("Your AI workspace")
         welcome_title.setObjectName("CardTitle")
         welcome_title.setStyleSheet("font-size: 19px;")
-        welcome_copy = QLabel(
-            "Choose a local model or a connected API model. Cloud providers send prompts to the provider configured for that model."
-        )
+        welcome_copy = QLabel("Choose a local model or a connected API model. Use the microphone to dictate a message with local Whisper speech recognition.")
         welcome_copy.setObjectName("CardDescription")
         welcome_copy.setWordWrap(True)
         welcome_layout.addWidget(welcome_title)
@@ -106,11 +111,13 @@ class ChatPage(QWidget):
         action_row = QHBoxLayout()
         self.hint = QLabel("Choose a model to begin.")
         self.hint.setObjectName("Muted")
+        self.mic_button = CircularMicButton()
+        self.mic_button.clicked.connect(self._toggle_voice_input)
         self.send_button = QPushButton("Send  ↑")
         self.send_button.setObjectName("PrimaryButton")
         self.send_button.clicked.connect(self.send_message)
-        action_row.addWidget(self.hint)
-        action_row.addStretch()
+        action_row.addWidget(self.hint, 1)
+        action_row.addWidget(self.mic_button)
         action_row.addWidget(self.send_button)
         composer_layout.addLayout(action_row)
         root.addWidget(composer_card)
@@ -120,6 +127,11 @@ class ChatPage(QWidget):
 
     def set_temperature(self, temperature: float) -> None:
         self.temperature = temperature
+
+    def set_speech_settings(self, model_name: str, language: str, models_directory: str) -> None:
+        self.whisper_manager.set_models_directory(models_directory)
+        self.settings.set("speech_default_model", model_name)
+        self.settings.set("speech_language", language)
 
     def set_remote_profiles(self, profiles: list[dict]) -> None:
         self.api_profiles = [dict(profile) for profile in profiles]
@@ -136,19 +148,15 @@ class ChatPage(QWidget):
         for model in self.local_models:
             name = model.get("name") or model.get("model")
             if name:
-                self.model_combo.addItem(f"Local  ·  {name}", {
-                    "source": "ollama", "model_id": str(name)
-                })
+                self.model_combo.addItem(f"Local  ·  {name}", {"source": "ollama", "model_id": str(name)})
         for profile in self.api_profiles:
             for model in profile.get("models", []):
                 model_id = str(model.get("id", "")).strip()
-                if not model_id:
-                    continue
-                display_name = str(model.get("name") or model_id)
-                self.model_combo.addItem(
-                    f"{profile.get('name', 'API')}  ·  {display_name}",
-                    {"source": "remote", "profile_id": profile["id"], "model_id": model_id},
-                )
+                if model_id:
+                    self.model_combo.addItem(
+                        f"{profile.get('name', 'API')}  ·  {model.get('name') or model_id}",
+                        {"source": "remote", "profile_id": profile["id"], "model_id": model_id},
+                    )
         if previous is not None:
             for index in range(self.model_combo.count()):
                 if self.model_combo.itemData(index) == previous:
@@ -163,13 +171,8 @@ class ChatPage(QWidget):
         if not selection:
             self.hint.setText("No models available — add a provider in Settings or download a local model.")
         elif selection.get("source") == "remote":
-            profile = next(
-                (item for item in self.api_profiles if item.get("id") == selection.get("profile_id")),
-                {},
-            )
-            self.hint.setText(
-                f"Cloud API  ·  {profile.get('name', 'Connected provider')}  ·  Usage may incur provider charges"
-            )
+            profile = next((item for item in self.api_profiles if item.get("id") == selection.get("profile_id")), {})
+            self.hint.setText(f"Cloud API  ·  {profile.get('name', 'Connected provider')}  ·  Usage may incur provider charges")
         else:
             self.hint.setText("Local inference  ·  Prompts are sent to your Ollama server")
 
@@ -216,19 +219,117 @@ class ChatPage(QWidget):
         self._assistant_body = None
         self._streaming_text = ""
 
+    def _toggle_voice_input(self) -> None:
+        if self.transcription_worker and self.transcription_worker.isRunning():
+            return
+        if self.whisper_download_worker and self.whisper_download_worker.isRunning():
+            return
+        if self.recorder.is_recording:
+            self.recorder.stop_recording()
+            return
+        model_name = self.settings.speech_default_model
+        if self.whisper_manager.is_installed(model_name):
+            self._start_recording()
+            return
+        answer = QMessageBox.question(
+            self, "Download Whisper model",
+            f"Whisper {model_name} is not installed yet.\n\nDownload this free multilingual model now? The download will be saved to your Voice models folder.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._download_whisper_model(model_name)
+
+    def _download_whisper_model(self, model_name: str) -> None:
+        self.mic_button.setEnabled(False)
+        self.mic_button.set_download_progress(0)
+        self.hint.setText(f"Downloading Whisper {model_name}…")
+        worker = WhisperDownloadWorker(self.whisper_manager, model_name, self)
+        self.whisper_download_worker = worker
+        worker.progress.connect(self._on_whisper_download_progress)
+        worker.completed.connect(lambda _path: self._on_whisper_downloaded(model_name))
+        worker.failed.connect(self._on_whisper_download_failed)
+        worker.finished.connect(lambda current=worker: self._whisper_download_finished(current))
+        worker.start()
+
+    def _on_whisper_download_progress(self, current: int, total: int) -> None:
+        percent = int(current * 100 / total) if total > 0 else 0
+        self.mic_button.set_download_progress(percent)
+        self.hint.setText(f"Downloading Whisper… {percent}%")
+
+    def _on_whisper_downloaded(self, model_name: str) -> None:
+        self.mic_button.set_download_progress(None)
+        self.hint.setText(f"Whisper {model_name} is ready. Starting microphone…")
+        self._start_recording()
+
+    def _on_whisper_download_failed(self, message: str) -> None:
+        self.mic_button.set_download_progress(None)
+        self.mic_button.setEnabled(True)
+        self.hint.setText(f"Whisper download failed: {message}")
+
+    def _whisper_download_finished(self, worker: WhisperDownloadWorker) -> None:
+        if self.whisper_download_worker is worker:
+            self.whisper_download_worker = None
+        worker.deleteLater()
+
+    def _start_recording(self) -> None:
+        self.recorder.start_recording()
+
+    def _on_recording_changed(self, recording: bool) -> None:
+        self.mic_button.set_recording(recording)
+        self.mic_button.setEnabled(True)
+        if recording:
+            self.hint.setText("Listening… select the microphone again to finish")
+            self.send_button.setEnabled(False)
+        else:
+            self.send_button.setEnabled(self.model_combo.count() > 0)
+
+    def _on_voice_error(self, message: str) -> None:
+        self.hint.setText(message)
+        self.mic_button.set_download_progress(None)
+        self.mic_button.set_recording(False)
+        self.mic_button.setEnabled(True)
+        self.send_button.setEnabled(self.model_combo.count() > 0)
+
+    def _on_recording_finished(self, audio_path: str) -> None:
+        model_name = self.settings.speech_default_model
+        language = self.settings.speech_language
+        self.hint.setText(f"Transcribing with local Whisper {model_name}…")
+        self.mic_button.setEnabled(False)
+        worker = WhisperTranscriptionWorker(
+            self.whisper_manager, audio_path, model_name,
+            language=None if language == "auto" else language,
+            parent=self,
+        )
+        self.transcription_worker = worker
+        worker.completed.connect(self._on_voice_transcribed)
+        worker.failed.connect(self._on_voice_error)
+        worker.finished.connect(lambda current=worker: self._transcription_finished(current))
+        worker.start()
+
+    def _on_voice_transcribed(self, text: str, language: str) -> None:
+        existing = self.composer.toPlainText().strip()
+        self.composer.setPlainText(f"{existing}\n{text}" if existing else text)
+        self.composer.setFocus()
+        self.hint.setText(f"Voice transcribed locally · {language}. Review your text and send when ready.")
+        self.mic_button.setEnabled(True)
+        self.send_button.setEnabled(self.model_combo.count() > 0)
+
+    def _transcription_finished(self, worker: WhisperTranscriptionWorker) -> None:
+        if self.transcription_worker is worker:
+            self.transcription_worker = None
+        worker.deleteLater()
+
     def send_message(self) -> None:
         prompt = self.composer.toPlainText().strip()
         selection = self.model_combo.currentData()
-        if not prompt or not selection or (self.worker and self.worker.isRunning()):
+        if not prompt or not selection or (self.worker and self.worker.isRunning()) or self.recorder.is_recording or (self.transcription_worker and self.transcription_worker.isRunning()):
             return
         remote_profile = None
         api_key = ""
         model_id = selection["model_id"]
         if selection["source"] == "remote":
-            remote_profile = next(
-                (item for item in self.api_profiles if item.get("id") == selection["profile_id"]),
-                None,
-            )
+            remote_profile = next((item for item in self.api_profiles if item.get("id") == selection["profile_id"]), None)
             if not remote_profile:
                 self.hint.setText("This API connection no longer exists. Refresh the model list.")
                 return
@@ -248,6 +349,7 @@ class ChatPage(QWidget):
         self.composer.clear()
         self.composer.setEnabled(False)
         self.send_button.setEnabled(False)
+        self.mic_button.setEnabled(False)
         self.worker = ChatWorker(
             self.endpoint, model_id, list(self.history), self.temperature,
             remote_profile=remote_profile, api_key=api_key,
@@ -278,6 +380,12 @@ class ChatPage(QWidget):
 
     def _worker_finished(self) -> None:
         self.composer.setEnabled(True)
+        self.mic_button.setEnabled(True)
         self.send_button.setEnabled(self.model_combo.count() > 0)
         self.composer.setFocus()
         self.worker = None
+
+    def insert_voice_text(self, text: str) -> None:
+        existing = self.composer.toPlainText().strip()
+        self.composer.setPlainText(f"{existing}\n{text}" if existing else text)
+        self.composer.setFocus()

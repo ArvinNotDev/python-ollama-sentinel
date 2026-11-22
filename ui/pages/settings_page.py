@@ -12,11 +12,13 @@ from PySide6.QtWidgets import (
 from core.providers import PROVIDER_DEFAULTS
 from core.secrets import SecretStoreError
 from core.settings import SettingsStore
+from core.speech.whisper_manager import WHISPER_MODELS
 from ui.workers import ProviderModelsWorker
 
 
 class SettingsPage(QWidget):
     settings_changed = Signal(str, float)
+    speech_settings_changed = Signal(str, str, str)
     api_profiles_changed = Signal(list)
     launch_server_requested = Signal()
     status_message = Signal(str)
@@ -49,6 +51,7 @@ class SettingsPage(QWidget):
         self._build_api_connections(root)
         self._build_ollama_connection(root)
         self._build_storage(root)
+        self._build_speech_settings(root)
         self._build_generation(root)
 
         actions = QHBoxLayout()
@@ -203,6 +206,48 @@ class SettingsPage(QWidget):
         layout.addLayout(exe_row)
         layout.addWidget(self.launch_button, 0, Qt.AlignmentFlag.AlignLeft)
         root.addWidget(card)
+
+    def _build_speech_settings(self, root: QVBoxLayout) -> None:
+        card, layout = self._card(
+            "Voice input · Whisper",
+            "Manage free multilingual speech-to-text models used by Voice Studio and the microphone button in Chat. Models are downloaded once and run locally.",
+        )
+        folder_row = QHBoxLayout()
+        self.speech_folder_input = QLineEdit(self.settings.speech_models_directory)
+        self.speech_folder_input.setPlaceholderText("Choose a folder for Whisper model files")
+        self.browse_speech_folder_button = QPushButton("Browse…")
+        self.browse_speech_folder_button.clicked.connect(self._browse_speech_folder)
+        folder_row.addWidget(self.speech_folder_input, 1)
+        folder_row.addWidget(self.browse_speech_folder_button)
+
+        preferences_row = QHBoxLayout()
+        self.speech_model_combo = QComboBox()
+        for name, details in WHISPER_MODELS.items():
+            self.speech_model_combo.addItem(
+                f"{name} · {details['description']}", name
+            )
+        model_index = self.speech_model_combo.findData(self.settings.speech_default_model)
+        self.speech_model_combo.setCurrentIndex(max(0, model_index))
+        self.speech_language_combo = QComboBox()
+        self.speech_language_combo.addItem("Auto detect", "auto")
+        self.speech_language_combo.addItem("Persian", "fa")
+        self.speech_language_combo.addItem("English", "en")
+        language_index = self.speech_language_combo.findData(self.settings.speech_language)
+        self.speech_language_combo.setCurrentIndex(max(0, language_index))
+        preferences_row.addWidget(QLabel("Default model"))
+        preferences_row.addWidget(self.speech_model_combo, 1)
+        preferences_row.addWidget(QLabel("Language"))
+        preferences_row.addWidget(self.speech_language_combo)
+
+        layout.addLayout(folder_row)
+        layout.addLayout(preferences_row)
+        root.addWidget(card)
+
+    def _browse_speech_folder(self) -> None:
+        start = self.speech_folder_input.text().strip()
+        directory = QFileDialog.getExistingDirectory(self, "Choose Whisper model folder", start)
+        if directory:
+            self.speech_folder_input.setText(directory)
 
     def _build_generation(self, root: QVBoxLayout) -> None:
         card, layout = self._card(
@@ -444,9 +489,19 @@ class SettingsPage(QWidget):
         self.settings.set("endpoint", endpoint)
         self.settings.set("models_directory", folder)
         self.settings.set("ollama_executable", executable)
+        speech_folder = self.speech_folder_input.text().strip()
+        if not speech_folder:
+            self.status_message.emit("Choose a folder for Whisper models first.")
+            return False
         temperature = self.temperature.value() / 10
+        speech_model = str(self.speech_model_combo.currentData() or "base")
+        speech_language = str(self.speech_language_combo.currentData() or "auto")
         self.settings.set("temperature", temperature)
+        self.settings.set("speech_models_directory", speech_folder)
+        self.settings.set("speech_default_model", speech_model)
+        self.settings.set("speech_language", speech_language)
         self.settings_changed.emit(endpoint, temperature)
+        self.speech_settings_changed.emit(speech_folder, speech_model, speech_language)
         self.status_message.emit("Settings saved.")
         return True
 

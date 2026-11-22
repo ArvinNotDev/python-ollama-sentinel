@@ -166,3 +166,6 @@ atlassian-ide-plugin.xml
 # SonarLint plugin
 .idea/sonarlint/
 
+
+# Local model/download caches
+.cache/

@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
 
 from core.ollama.process_manager import OllamaProcessManager
 from core.settings import SettingsStore
+from core.speech.whisper_manager import WhisperModelManager
 from ui.pages.chat_page import ChatPage
 from ui.pages.models_page import ModelsPage
 from ui.pages.settings_page import SettingsPage
+from ui.pages.voice_page import VoicePage
 
 
 class MainWindow(QMainWindow):
@@ -18,6 +20,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = settings or SettingsStore()
         self.process_manager = OllamaProcessManager()
+        self.whisper_manager = WhisperModelManager(self.settings.speech_models_directory)
         self._navigation_animation: QPropertyAnimation | None = None
         self.setWindowTitle("Ollama Sentinel")
         self.resize(1360, 860)
@@ -53,7 +56,7 @@ class MainWindow(QMainWindow):
         nav_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; padding-left: 7px;")
         sidebar_layout.addWidget(nav_label)
         self.nav_buttons: list[QPushButton] = []
-        for label, icon, index in (("Chat", "◌", 0), ("Models", "▦", 1), ("Settings", "⚙", 2)):
+        for label, icon, index in (("Chat", "◌", 0), ("Models", "▦", 1), ("Voice", "♫", 2), ("Settings", "⚙", 3)):
             button = QPushButton(f"{icon}    {label}")
             button.setObjectName("NavButton")
             button.setCheckable(True)
@@ -101,12 +104,17 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self.chat_page = ChatPage(
-            self.settings.endpoint, float(self.settings.get("temperature", 0.7)), settings=self.settings
+            self.settings.endpoint,
+            float(self.settings.get("temperature", 0.7)),
+            settings=self.settings,
+            whisper_manager=self.whisper_manager,
         )
         self.models_page = ModelsPage(self.settings.endpoint)
+        self.voice_page = VoicePage(self.settings, self.whisper_manager)
         self.settings_page = SettingsPage(self.settings)
         self.stack.addWidget(self.chat_page)
         self.stack.addWidget(self.models_page)
+        self.stack.addWidget(self.voice_page)
         self.stack.addWidget(self.settings_page)
         content_layout.addWidget(self.stack, 1)
         root_layout.addWidget(content, 1)
@@ -117,7 +125,11 @@ class MainWindow(QMainWindow):
         self.models_page.status_message.connect(self._show_status)
         self.settings_page.status_message.connect(self._show_status)
         self.settings_page.settings_changed.connect(self._settings_updated)
+        self.settings_page.speech_settings_changed.connect(self._speech_settings_updated)
         self.settings_page.api_profiles_changed.connect(self._api_profiles_updated)
+        self.voice_page.insert_into_chat.connect(self._insert_voice_text)
+        self.voice_page.speech_preferences_changed.connect(self._voice_preferences_updated)
+        self.voice_page.status_message.connect(self._show_status)
         self.settings_page.launch_server_requested.connect(self._launch_managed_server)
         self.chat_page.set_remote_profiles(self.settings.list_api_profiles())
         self.navigate(0)
@@ -141,7 +153,7 @@ class MainWindow(QMainWindow):
             animation.start()
         for position, button in enumerate(self.nav_buttons):
             button.setChecked(position == index)
-        labels = ("Workspace  /  Chat", "Workspace  /  Models", "Workspace  /  Settings")
+        labels = ("Workspace  /  Chat", "Workspace  /  Models", "Workspace  /  Voice", "Workspace  /  Settings")
         self.breadcrumb.setText(labels[index])
         if index == 1:
             self.models_page.refresh_models()
@@ -150,6 +162,26 @@ class MainWindow(QMainWindow):
         self.chat_page.set_models(models)
         count = len(models)
         self.model_count.setText(f"Model library · {count} model{'s' if count != 1 else ''}")
+
+    def _speech_settings_updated(self, models_directory: str, model_name: str, language: str) -> None:
+        self.whisper_manager.set_models_directory(models_directory)
+        self.settings.set("speech_default_model", model_name)
+        self.settings.set("speech_language", language)
+        self.chat_page.set_speech_settings(model_name, language, models_directory)
+        self.voice_page.apply_settings(models_directory, model_name, language)
+        self._show_status("Voice settings saved.")
+
+    def _voice_preferences_updated(self, model_name: str, language: str) -> None:
+        self.settings.set("speech_default_model", model_name)
+        self.settings.set("speech_language", language)
+        model_index = self.settings_page.speech_model_combo.findData(model_name)
+        self.settings_page.speech_model_combo.setCurrentIndex(max(0, model_index))
+        language_index = self.settings_page.speech_language_combo.findData(language)
+        self.settings_page.speech_language_combo.setCurrentIndex(max(0, language_index))
+
+    def _insert_voice_text(self, text: str) -> None:
+        self.chat_page.insert_voice_text(text)
+        self.navigate(0)
 
     def _api_profiles_updated(self, profiles: list[dict]) -> None:
         self.chat_page.set_remote_profiles(profiles)

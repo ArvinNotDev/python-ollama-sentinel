@@ -23,14 +23,19 @@ class SettingsStore:
             path = Path(base or Path.home() / ".config" / "ollama-sentinel") / "settings.json"
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        local_data = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation)
+        default_speech_dir = Path(local_data or Path.home() / ".local" / "share" / "ollama-sentinel") / "speech-models"
         self.secret_store = secret_store or SecretStore()
         self._data: dict[str, Any] = {
-            "version": 2,
+            "version": 3,
             "endpoint": DEFAULT_ENDPOINT,
             "models_directory": str(Path.home() / ".ollama" / "models"),
             "ollama_executable": "",
             "temperature": 0.7,
             "api_profiles": [],
+            "speech_models_directory": str(default_speech_dir),
+            "speech_default_model": "base",
+            "speech_language": "auto",
         }
         self._load()
 
@@ -65,6 +70,18 @@ class SettingsStore:
     @property
     def ollama_executable(self) -> str:
         return str(self.get("ollama_executable", ""))
+
+    @property
+    def speech_models_directory(self) -> str:
+        return str(self.get("speech_models_directory", ""))
+
+    @property
+    def speech_default_model(self) -> str:
+        return str(self.get("speech_default_model", "base"))
+
+    @property
+    def speech_language(self) -> str:
+        return str(self.get("speech_language", "auto"))
 
     def list_api_profiles(self) -> list[dict[str, Any]]:
         return [dict(profile) for profile in self.get("api_profiles", [])]
