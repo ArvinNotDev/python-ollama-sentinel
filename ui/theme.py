@@ -68,6 +68,34 @@ QTextEdit#Composer, QPlainTextEdit#Composer {
     color: #F0F1F4; background: transparent; border: none; border-radius: 8px;
     padding: 7px 9px; font-size: 14px;
 }
+QFrame#ChatComposerShell {
+    background: #202020; border: 1px solid #363636; border-radius: 27px;
+}
+QFrame#ChatComposerShell:hover { border-color: #454545; }
+QPushButton#ComposerPlusButton {
+    color: #E2E5EB; background: transparent; border: none;
+    border-radius: 18px; padding: 0; min-width: 34px; min-height: 34px;
+}
+QPushButton#ComposerPlusButton:hover { background: #303030; }
+QPushButton#ComposerThinkButton {
+    color: #8EAFE8; background: #202631; border: 1px solid #2E405E;
+    border-radius: 18px; padding: 5px 11px; min-height: 22px; font-weight: 600;
+}
+QPushButton#ComposerThinkButton:hover { color: #B4CCF5; background: #293345; border-color: #40577A; }
+QPushButton#ComposerThinkButton:checked {
+    color: #C5D9FF; background: #2A3C59; border-color: #5276A8;
+}
+QComboBox#ThinkLevelPicker {
+    color: #C6D5F0; background: #252D3A; border: 1px solid #3A4B67;
+    border-radius: 17px; padding: 4px 8px; font-size: 11px;
+}
+QPushButton#SendCircleButton {
+    color: #FFFFFF; background: #2869D8; border: none;
+    border-radius: 20px; padding: 0; min-width: 38px; min-height: 38px;
+}
+QPushButton#SendCircleButton:hover { background: #3478EA; }
+QPushButton#SendCircleButton:pressed { background: #1F58B7; }
+QPushButton#SendCircleButton:disabled { color: #8A9BB8; background: #303E55; }
 QComboBox::drop-down { border: none; width: 27px; }
 QComboBox QAbstractItemView {
     color: #E9EBF1; background: #242830; border: 1px solid #3B414D;
@@ -104,6 +132,27 @@ QFrame#DownloadSidebar {
     background: #20242B;
     border: 1px solid #343A45;
     border-radius: 16px;
+}
+QFrame#ModelVariantCard {
+    background: #252A32; border: 1px solid #353C48; border-radius: 13px;
+}
+QFrame#ModelVariantCard:hover { background: #2A303A; border-color: #4B5667; }
+QLabel#VariantTitle { color: #F1F3F7; font-size: 13px; font-weight: 700; }
+QLabel#VariantPill {
+    color: #C7D4EA; background: #303B4C; border: 1px solid #41516A;
+    border-radius: 11px; padding: 4px 8px; font-size: 10px; font-weight: 650;
+}
+QLabel#VariantLatestPill {
+    color: #A7DBBF; background: #20392D; border: 1px solid #315B43;
+    border-radius: 9px; padding: 3px 7px; font-size: 9px; font-weight: 750;
+}
+QPushButton#VariantDownloadButton {
+    color: #FFFFFF; background: #6555A8; border: 1px solid #7B6CC0;
+    border-radius: 10px; padding: 6px 12px; min-height: 20px; font-weight: 650;
+}
+QPushButton#VariantDownloadButton:hover { background: #7565BD; border-color: #9586D7; }
+QPushButton#VariantDownloadButton:disabled {
+    color: #9CA6B5; background: #303641; border-color: #3B4452;
 }
 QListWidget#ModelCatalogList {
     color: #DDE0E7;
