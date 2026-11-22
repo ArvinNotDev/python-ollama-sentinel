@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import uuid
 
-from PySide6.QtCore import Qt, Signal, QTimer, QSize, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, Signal, QTimer, QSize, QAbstractAnimation, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser,
@@ -84,7 +84,7 @@ class ThinkingIndicator(QWidget):
     def set_running(self, running: bool) -> None:
         self.setVisible(running)
         for animation in self._animations:
-            if running and animation.state() != animation.State.Running:
+            if running and animation.state() != QAbstractAnimation.State.Running:
                 animation.start()
             elif not running:
                 animation.stop()
@@ -176,7 +176,7 @@ class ChatPage(QWidget):
         welcome_title = QLabel("What would you like to explore?")
         welcome_title.setObjectName("CardTitle")
         welcome_title.setStyleSheet("font-size: 19px;")
-        welcome_copy = QLabel("Choose a model above and start a conversation. You can also dictate a message with local Whisper speech recognition.")
+        welcome_copy = QLabel("Choose a model below and start a conversation. You can also dictate a message with local Whisper speech recognition.")
         welcome_copy.setObjectName("CardDescription")
         welcome_copy.setWordWrap(True)
         welcome_layout.addWidget(welcome_title)
