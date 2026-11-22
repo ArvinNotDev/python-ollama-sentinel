@@ -80,16 +80,15 @@ class ThinkingIndicator(QWidget):
             animation.setLoopCount(-1)
             animation.setEasingCurve(QEasingCurve.Type.InOutSine)
             self._animations.append(animation)
-            animation.start()
-            animation.setCurrentTime(index * 210)
         self.hide()
 
     def set_running(self, running: bool) -> None:
         self.setVisible(running)
-        for animation in self._animations:
+        for index, animation in enumerate(self._animations):
             if running and animation.state() != QAbstractAnimation.State.Running:
                 animation.start()
-            elif not running:
+                animation.setCurrentTime(index * 210)
+            elif not running and animation.state() == QAbstractAnimation.State.Running:
                 animation.stop()
 
 
