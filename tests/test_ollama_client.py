@@ -55,6 +55,25 @@ class OllamaClientTests(unittest.TestCase):
         client.session.post.assert_not_called()
         client.close()
 
+    def test_cancel_active_chat_closes_stream_response(self):
+        client = OllamaClient()
+        response = MagicMock()
+        client._chat_response = response
+        client.cancel_chat()
+        response.close.assert_called_once()
+        client._chat_response = None
+        client.close()
+
+    def test_chat_cancelled_before_request_starts(self):
+        import threading
+        client = OllamaClient()
+        client.session.post = MagicMock()
+        cancel_event = threading.Event()
+        cancel_event.set()
+        self.assertEqual(list(client.chat_stream("qwen3:8b", [], cancel_event=cancel_event)), [])
+        client.session.post.assert_not_called()
+        client.close()
+
     def test_chat_stream_sends_images_and_think_control(self):
         client = OllamaClient()
         client.session.post = MagicMock(return_value=FakeResponse([
