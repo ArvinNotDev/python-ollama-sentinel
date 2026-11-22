@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
@@ -18,6 +19,8 @@ class OllamaClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        self._pull_response: requests.Response | None = None
+        self._pull_response_lock = threading.Lock()
         try:
             parsed = urlparse(self.base_url)
             valid_host = bool(parsed.hostname)
