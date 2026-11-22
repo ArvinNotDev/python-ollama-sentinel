@@ -153,6 +153,7 @@ QPushButton#ThinkingHeader {
 }
 QPushButton#ThinkingHeader:hover { color: #F0EBFF; background: transparent; }
 QLabel#ThinkingDot { color: #C4B8F0; font-size: 8px; background: transparent; }
+QLabel#ThinkingLabel { color: #BFB5E7; font-size: 11px; font-weight: 600; background: transparent; }
 QTextBrowser#ThinkingBody {
     color: #ADB4C1; background: #20242B; border: 1px solid #343A45;
     border-radius: 10px; padding: 8px 10px;
