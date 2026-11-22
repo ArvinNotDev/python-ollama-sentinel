@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QStackedWidget, QVBoxLayout, QWidget,
@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
 
     def navigate(self, index: int) -> None:
         if index != self.stack.currentIndex():
-            if self._navigation_animation and self._navigation_animation.state() == QPropertyAnimation.State.Running:
+            if self._navigation_animation and self._navigation_animation.state() == QAbstractAnimation.State.Running:
                 self._navigation_animation.stop()
             self.stack.setCurrentIndex(index)
             page = self.stack.currentWidget()

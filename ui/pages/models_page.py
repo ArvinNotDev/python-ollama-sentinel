@@ -4,12 +4,12 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QProgressBar, QScrollArea, QTabWidget,
     QVBoxLayout, QWidget,
 )
 
-from ui.workers import DeleteModelWorker, ModelListWorker, PullWorker
+from ui.workers import ModelListWorker, PullWorker
 
 
 FEATURED_MODELS = [
@@ -52,6 +52,7 @@ class DownloadJobCard(QFrame):
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
+        self.layer_progress: dict[str, tuple[int, int]] = {}
         bottom = QHBoxLayout()
         self.detail_label = QLabel("Waiting for Ollama")
         self.detail_label.setObjectName("Muted")
@@ -70,11 +71,18 @@ class DownloadJobCard(QFrame):
         total = event.get("total")
         self.status_label.setText(status)
         if isinstance(current, (int, float)) and isinstance(total, (int, float)) and total > 0:
-            percent = max(0, min(100, int(current * 100 / total)))
+            layer_id = str(event.get("digest") or status)
+            completed = max(0, min(int(current), int(total)))
+            self.layer_progress[layer_id] = (completed, int(total))
+            overall_completed = sum(item[0] for item in self.layer_progress.values())
+            overall_total = sum(item[1] for item in self.layer_progress.values())
+            percent = max(0, min(100, int(overall_completed * 100 / overall_total)))
             self.progress.setRange(0, 100)
             self.progress.setValue(percent)
             self.percent_label.setText(f"{percent}%")
-            self.detail_label.setText(f"{format_bytes(current)} of {format_bytes(total)}")
+            self.detail_label.setText(
+                f"{format_bytes(overall_completed)} of {format_bytes(overall_total)} across model layers"
+            )
         else:
             self.progress.setRange(0, 0)
             self.percent_label.setText("Working")
@@ -142,9 +150,15 @@ class ModelsPage(QWidget):
         downloads_header.addStretch()
         downloads_header.addWidget(self.active_count)
         downloads_layout.addLayout(downloads_header)
-        self.jobs_layout = QVBoxLayout()
+        self.jobs_scroll = QScrollArea()
+        self.jobs_scroll.setWidgetResizable(True)
+        self.jobs_scroll.setMaximumHeight(178)
+        self.jobs_container = QWidget()
+        self.jobs_layout = QVBoxLayout(self.jobs_container)
+        self.jobs_layout.setContentsMargins(0, 0, 0, 0)
         self.jobs_layout.setSpacing(8)
-        downloads_layout.addLayout(self.jobs_layout)
+        self.jobs_scroll.setWidget(self.jobs_container)
+        downloads_layout.addWidget(self.jobs_scroll)
         root.addWidget(self.downloads_frame)
         self.refresh_models()
 
@@ -253,6 +267,9 @@ class ModelsPage(QWidget):
             self.status_message.emit(f"{model_name} is already installed.")
             self.tabs.setCurrentWidget(self.library_tab)
             return
+        previous_card = self.jobs.get(model_name)
+        if previous_card:
+            previous_card.deleteLater()
         card = DownloadJobCard(model_name)
         self.jobs_layout.addWidget(card)
         self.jobs[model_name] = card
@@ -360,6 +377,7 @@ class ModelsPage(QWidget):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        from ui.workers import DeleteModelWorker
         worker = DeleteModelWorker(self.endpoint, model_name, self)
         worker.completed.connect(lambda: self._after_delete(model_name))
         worker.failed.connect(lambda error: self.status_message.emit(error))
