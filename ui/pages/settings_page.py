@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PySide6.QtCore import Qt, Signal
@@ -13,7 +14,7 @@ from core.providers import PROVIDER_DEFAULTS
 from core.secrets import SecretStoreError
 from core.settings import SettingsStore
 from core.speech.whisper_manager import WHISPER_MODELS
-from ui.workers import ProviderModelsWorker
+from ui.workers import MoveOllamaModelsWorker, ProviderModelsWorker
 from ui.theme import app_icon
 
 
@@ -29,6 +30,7 @@ class SettingsPage(QWidget):
         self.settings = settings
         self.current_profile_id: str | None = None
         self.provider_worker: ProviderModelsWorker | None = None
+        self.move_models_worker: MoveOllamaModelsWorker | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -190,17 +192,31 @@ class SettingsPage(QWidget):
 
     def _build_storage(self, root: QVBoxLayout) -> None:
         card, layout = self._card(
-            "Model storage",
-            "Choose where Ollama should keep downloaded model files. This path is applied when Ollama is launched by this app; an already-running Ollama service keeps its existing environment.",
+            "Move Models",
+            "Move your existing Ollama model files to another drive or folder. Ollama must be fully stopped during the transfer. The new location is saved only after the move succeeds.",
         )
+        current_row = QHBoxLayout()
+        current_row.addWidget(QLabel("Current location"))
+        self.current_model_folder_label = QLabel(self.settings.models_directory)
+        self.current_model_folder_label.setObjectName("Muted")
+        self.current_model_folder_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.current_model_folder_label.setWordWrap(True)
+        current_row.addWidget(self.current_model_folder_label, 1)
+
         folder_row = QHBoxLayout()
         self.folder_input = QLineEdit(self.settings.models_directory)
-        self.folder_input.setPlaceholderText("Choose a folder for model files")
+        self.folder_input.setPlaceholderText("Choose a new folder for your Ollama models")
         self.browse_folder_button = QPushButton("Browse…")
         self.browse_folder_button.setIcon(app_icon("mdi6.folder-open-outline", "#B7BEC9"))
         self.browse_folder_button.clicked.connect(self._browse_folder)
+        self.move_models_button = QPushButton("Move models")
+        self.move_models_button.setIcon(app_icon("mdi6.folder-move-outline", "#FFFFFF"))
+        self.move_models_button.setObjectName("PrimaryButton")
+        self.move_models_button.clicked.connect(self._move_models)
         folder_row.addWidget(self.folder_input, 1)
         folder_row.addWidget(self.browse_folder_button)
+        folder_row.addWidget(self.move_models_button)
+
         exe_row = QHBoxLayout()
         self.executable_input = QLineEdit(self.settings.ollama_executable)
         self.executable_input.setPlaceholderText("Optional: path to ollama.exe (auto-detected when empty)")
@@ -211,8 +227,9 @@ class SettingsPage(QWidget):
         exe_row.addWidget(self.browse_executable_button)
         self.launch_button = QPushButton("Launch Ollama with this folder")
         self.launch_button.setIcon(app_icon("mdi6.play-outline", "#FFFFFF"))
-        self.launch_button.setObjectName("PrimaryButton")
+        self.launch_button.setObjectName("GhostButton")
         self.launch_button.clicked.connect(self._launch_server)
+        layout.addLayout(current_row)
         layout.addLayout(folder_row)
         layout.addLayout(exe_row)
         layout.addWidget(self.launch_button, 0, Qt.AlignmentFlag.AlignLeft)
@@ -476,6 +493,61 @@ class SettingsPage(QWidget):
         if directory:
             self.folder_input.setText(directory)
 
+    def _move_models(self) -> None:
+        if self.move_models_worker and self.move_models_worker.isRunning():
+            return
+        source = self.settings.models_directory
+        destination = self.folder_input.text().strip()
+        if not destination:
+            self.status_message.emit("Choose a destination folder first.")
+            return
+        try:
+            source_path = Path(source).expanduser().resolve()
+            destination_path = Path(destination).expanduser().resolve()
+        except OSError as exc:
+            self.status_message.emit(f"Invalid model folder: {exc}")
+            return
+        if source_path == destination_path:
+            self.status_message.emit("Choose a different destination folder.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Move Ollama models",
+            "Move all existing model files to this new folder?\n\n"
+            f"From: {source_path}\nTo: {destination_path}\n\n"
+            "The local Ollama server must be completely stopped. "
+            "Do not close the app until the move finishes.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.move_models_button.setEnabled(False)
+        self.move_models_button.setText("Moving…")
+        worker = MoveOllamaModelsWorker(
+            str(source_path), str(destination_path), self.endpoint_input.text().strip(), self
+        )
+        self.move_models_worker = worker
+        worker.completed.connect(self._models_moved)
+        worker.failed.connect(lambda message: self.status_message.emit(f"Could not move models: {message}"))
+        worker.finished.connect(lambda current=worker: self._move_models_finished(current))
+        worker.start()
+
+    def _models_moved(self, destination: str) -> None:
+        self.settings.set("models_directory", destination)
+        self.folder_input.setText(destination)
+        self.current_model_folder_label.setText(destination)
+        self.status_message.emit(
+            "Models moved successfully. Launch Ollama from this app to use the new location."
+        )
+
+    def _move_models_finished(self, worker: MoveOllamaModelsWorker) -> None:
+        if self.move_models_worker is worker:
+            self.move_models_worker = None
+        self.move_models_button.setEnabled(True)
+        self.move_models_button.setText("Move models")
+        worker.deleteLater()
+
     def _browse_executable(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Ollama executable", "", "Ollama executable (ollama.exe);;All files (*)"
@@ -498,8 +570,22 @@ class SettingsPage(QWidget):
         if not folder:
             self.status_message.emit("Choose a model storage folder first.")
             return False
+        current_folder = Path(self.settings.models_directory).expanduser().resolve()
+        requested_folder = Path(folder).expanduser().resolve()
+        if requested_folder != current_folder and current_folder.is_dir():
+            try:
+                has_existing_files = any(current_folder.iterdir())
+            except OSError as exc:
+                self.status_message.emit(f"Could not inspect the current model folder: {exc}")
+                return False
+            if has_existing_files:
+                self.status_message.emit(
+                    "Use Move models to relocate existing model files before saving a different folder."
+                )
+                return False
         self.settings.set("endpoint", endpoint)
-        self.settings.set("models_directory", folder)
+        self.settings.set("models_directory", str(requested_folder))
+        self.current_model_folder_label.setText(str(requested_folder))
         self.settings.set("ollama_executable", executable)
         speech_folder = self.speech_folder_input.text().strip()
         if not speech_folder:
