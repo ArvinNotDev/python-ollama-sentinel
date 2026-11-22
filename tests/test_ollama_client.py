@@ -36,6 +36,25 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(events[-1]["status"], "success")
         client.close()
 
+    def test_cancel_active_pull_closes_stream_response(self):
+        client = OllamaClient()
+        response = MagicMock()
+        client._pull_response = response
+        client.cancel_pull()
+        response.close.assert_called_once()
+        client._pull_response = None
+        client.close()
+
+    def test_pull_cancelled_before_request_starts(self):
+        import threading
+        client = OllamaClient()
+        client.session.post = MagicMock()
+        cancel_event = threading.Event()
+        cancel_event.set()
+        self.assertEqual(list(client.pull_model("qwen3:8b", cancel_event)), [])
+        client.session.post.assert_not_called()
+        client.close()
+
     def test_api_error_is_raised(self):
         with self.assertRaises(OllamaError):
             OllamaClient._raise_for_api_error({"error": "model not found"})

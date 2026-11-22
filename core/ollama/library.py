@@ -177,13 +177,18 @@ class OllamaLibraryClient:
     def list_tags(self, model_name: str) -> list[dict[str, Any]]:
         """Load the model family's available tags; fall back to its model page."""
         model_path = quote(_base_model_name(model_name), safe="/")
-        tags_path = f"/library/{model_path}/tags"
+        if "/" in model_path:
+            tags_path = f"/{model_path}/tags"
+            fallback_path = f"/{model_path}"
+        else:
+            tags_path = f"/library/{model_path}/tags"
+            fallback_path = f"/library/{model_path}"
         try:
             body = self._get(tags_path)
         except requests.HTTPError as exc:
             if exc.response is None or exc.response.status_code != 404:
                 raise
-            body = self._get(f"/library/{model_path}")
+            body = self._get(fallback_path)
         return parse_model_tags(body, model_name)
 
     def close(self) -> None:

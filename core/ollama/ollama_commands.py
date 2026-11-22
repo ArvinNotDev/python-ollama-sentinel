@@ -106,7 +106,7 @@ class OllamaClient:
         if response is not None:
             try:
                 response.close()
-            except requests.RequestException:
+            except Exception:
                 pass
 
     def delete_model(self, model_name: str) -> None:

@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import MagicMock
 
 from core.ollama.library import (
+    OllamaLibraryClient,
     next_search_path,
     parse_model_tags,
     parse_search_results,
@@ -65,6 +67,13 @@ class OllamaLibraryParserTests(unittest.TestCase):
         self.assertEqual(tags[0]["context"], "40K")
         self.assertEqual(tags[1]["tag"], "14b-q4_K_M")
         self.assertEqual(tags[1]["digest"], "def456")
+
+    def test_namespaced_models_use_their_own_tags_route(self):
+        client = OllamaLibraryClient()
+        client._get = MagicMock(return_value="<html></html>")
+        self.assertEqual(client.list_tags("community/qwen3"), [])
+        client._get.assert_called_once_with("/community/qwen3/tags")
+        client.close()
 
     def test_parse_namespaced_tags(self):
         body = """
