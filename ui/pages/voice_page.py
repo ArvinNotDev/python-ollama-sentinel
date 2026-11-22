@@ -13,7 +13,6 @@ from core.speech.whisper_manager import WHISPER_MODELS, WhisperModelManager
 from ui.audio_recorder import AudioRecorder
 from ui.mic_button import CircularMicButton
 from ui.workers import WhisperDownloadWorker, WhisperTranscriptionWorker
-from ui.theme import app_icon
 
 
 class VoicePage(QWidget):
@@ -34,7 +33,7 @@ class VoicePage(QWidget):
         self.recorder.failed.connect(self._on_error)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(30, 24, 30, 22)
+        root.setContentsMargins(34, 27, 34, 24)
         root.setSpacing(16)
         title = QLabel("Voice Studio")
         title.setObjectName("PageTitle")
@@ -61,7 +60,6 @@ class VoicePage(QWidget):
         self.model_combo.setCurrentIndex(max(0, current_index))
         self.model_combo.currentIndexChanged.connect(self._model_changed)
         self.download_button = QPushButton("Download model")
-        self.download_button.setIcon(app_icon("mdi6.download", "#FFFFFF"))
         self.download_button.setObjectName("PrimaryButton")
         self.download_button.clicked.connect(self._download_selected)
         model_row.addWidget(self.model_combo, 1)
@@ -117,10 +115,8 @@ class VoicePage(QWidget):
         transcript_header.addWidget(transcript_title)
         transcript_header.addStretch()
         self.copy_button = QPushButton("Copy")
-        self.copy_button.setIcon(app_icon("mdi6.content-copy", "#B7BEC9"))
         self.copy_button.clicked.connect(self._copy_transcript)
         self.insert_button = QPushButton("Insert into Chat")
-        self.insert_button.setIcon(app_icon("mdi6.chat-plus-outline", "#FFFFFF"))
         self.insert_button.setObjectName("PrimaryButton")
         self.insert_button.clicked.connect(self._insert_transcript)
         transcript_header.addWidget(self.copy_button)

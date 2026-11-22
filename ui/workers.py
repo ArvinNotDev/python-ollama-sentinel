@@ -14,26 +14,80 @@ class PullWorker(QThread):
     progress = Signal(dict)
     completed = Signal(str)
     failed = Signal(str)
+    cancelled = Signal(str)
 
-    def __init__(self, endpoint: str, model_name: str) -> None:
-        super().__init__()
+    def __init__(self, endpoint: str, model_name: str, parent=None) -> None:
+        super().__init__(parent)
         self.endpoint = endpoint
+        self.model_name = model_name
+        self._cancel_event = threading.Event()
+        self._client: OllamaClient | None = None
+        self._client_lock = threading.Lock()
+
+    def cancel(self) -> None:
+        """Stop the active HTTP pull stream; Ollama can resume it on a later pull."""
+        self._cancel_event.set()
+        with self._client_lock:
+            client = self._client
+        if client is not None:
+            client.cancel_pull()
+
+    def run(self) -> None:
+        client: OllamaClient | None = None
+        try:
+            client = OllamaClient(self.endpoint, timeout=20)
+            with self._client_lock:
+                self._client = client
+            for event in client.pull_model(self.model_name, cancel_event=self._cancel_event):
+                if self._cancel_event.is_set():
+                    break
+                self.progress.emit(event)
+            if self._cancel_event.is_set():
+                self.cancelled.emit(self.model_name)
+            else:
+                self.completed.emit(self.model_name)
+        except Exception as exc:
+            if self._cancel_event.is_set():
+                self.cancelled.emit(self.model_name)
+            else:
+                self.failed.emit(str(exc))
+        finally:
+            with self._client_lock:
+                self._client = None
+            if client is not None:
+                client.close()
+
+
+class OllamaCatalogWorker(QThread):
+    loaded = Signal(list)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        client = OllamaLibraryClient()
+        try:
+            self.loaded.emit(client.list_models())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        finally:
+            client.close()
+
+
+class OllamaModelTagsWorker(QThread):
+    loaded = Signal(str, list)
+    failed = Signal(str, str)
+
+    def __init__(self, model_name: str, parent=None) -> None:
+        super().__init__(parent)
         self.model_name = model_name
 
     def run(self) -> None:
+        client = OllamaLibraryClient()
         try:
-            client = OllamaClient(self.endpoint, timeout=20)
-            try:
-                for event in client.pull_model(self.model_name):
-                    self.progress.emit(event)
-                    if event.get("status") == "success":
-                        self.completed.emit(self.model_name)
-                        return
-                self.completed.emit(self.model_name)
-            finally:
-                client.close()
+            self.loaded.emit(self.model_name, client.list_tags(self.model_name))
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(self.model_name, str(exc))
+        finally:
+            client.close()
 
 
 class ChatWorker(QThread):

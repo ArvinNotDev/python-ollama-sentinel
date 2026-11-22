@@ -14,7 +14,6 @@ from core.secrets import SecretStoreError
 from core.settings import SettingsStore
 from core.speech.whisper_manager import WHISPER_MODELS
 from ui.workers import ProviderModelsWorker
-from ui.theme import app_icon
 
 
 class SettingsPage(QWidget):
@@ -37,7 +36,7 @@ class SettingsPage(QWidget):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
         root = QVBoxLayout(content)
-        root.setContentsMargins(30, 24, 30, 22)
+        root.setContentsMargins(34, 27, 34, 24)
         root.setSpacing(17)
         self.scroll.setWidget(content)
         outer.addWidget(self.scroll)
@@ -58,7 +57,6 @@ class SettingsPage(QWidget):
         actions = QHBoxLayout()
         actions.addStretch()
         self.save_button = QPushButton("Save settings")
-        self.save_button.setIcon(app_icon("mdi6.content-save-outline", "#FFFFFF"))
         self.save_button.setObjectName("PrimaryButton")
         self.save_button.clicked.connect(self.save_settings)
         actions.addWidget(self.save_button)
@@ -91,8 +89,7 @@ class SettingsPage(QWidget):
         self.profile_combo = QComboBox()
         self.profile_combo.setMinimumWidth(220)
         self.profile_combo.currentIndexChanged.connect(self._load_selected_profile)
-        self.new_profile_button = QPushButton("New connection")
-        self.new_profile_button.setIcon(app_icon("mdi6.plus", "#B7BEC9"))
+        self.new_profile_button = QPushButton("＋  New connection")
         self.new_profile_button.clicked.connect(self._new_profile)
         saved_row.addWidget(QLabel("Saved connections"))
         saved_row.addWidget(self.profile_combo, 1)
@@ -114,7 +111,6 @@ class SettingsPage(QWidget):
         self.api_key_status.setObjectName("Muted")
 
         self.show_key_button = QPushButton("Show")
-        self.show_key_button.setIcon(app_icon("mdi6.eye-outline", "#B7BEC9"))
         self.show_key_button.setObjectName("GhostButton")
         self.show_key_button.setCheckable(True)
         self.show_key_button.toggled.connect(
@@ -143,17 +139,13 @@ class SettingsPage(QWidget):
         self.provider_status.setObjectName("Muted")
         action_row = QHBoxLayout()
         self.fetch_models_button = QPushButton("Fetch models")
-        self.fetch_models_button.setIcon(app_icon("mdi6.cloud-download-outline", "#B7BEC9"))
         self.fetch_models_button.clicked.connect(self._fetch_provider_models)
         self.test_provider_button = QPushButton("Test connection")
-        self.test_provider_button.setIcon(app_icon("mdi6.lan-connect", "#B7BEC9"))
         self.test_provider_button.clicked.connect(self._fetch_provider_models)
         self.save_provider_button = QPushButton("Save connection")
-        self.save_provider_button.setIcon(app_icon("mdi6.content-save-outline", "#FFFFFF"))
         self.save_provider_button.setObjectName("PrimaryButton")
         self.save_provider_button.clicked.connect(self._save_provider)
         self.remove_provider_button = QPushButton("Remove")
-        self.remove_provider_button.setIcon(app_icon("mdi6.trash-can-outline", "#F09BA4"))
         self.remove_provider_button.setObjectName("DangerButton")
         self.remove_provider_button.clicked.connect(self._remove_provider)
         action_row.addWidget(self.fetch_models_button)
@@ -197,7 +189,6 @@ class SettingsPage(QWidget):
         self.folder_input = QLineEdit(self.settings.models_directory)
         self.folder_input.setPlaceholderText("Choose a folder for model files")
         self.browse_folder_button = QPushButton("Browse…")
-        self.browse_folder_button.setIcon(app_icon("mdi6.folder-open-outline", "#B7BEC9"))
         self.browse_folder_button.clicked.connect(self._browse_folder)
         folder_row.addWidget(self.folder_input, 1)
         folder_row.addWidget(self.browse_folder_button)
@@ -205,12 +196,10 @@ class SettingsPage(QWidget):
         self.executable_input = QLineEdit(self.settings.ollama_executable)
         self.executable_input.setPlaceholderText("Optional: path to ollama.exe (auto-detected when empty)")
         self.browse_executable_button = QPushButton("Find Ollama…")
-        self.browse_executable_button.setIcon(app_icon("mdi6.file-search-outline", "#B7BEC9"))
         self.browse_executable_button.clicked.connect(self._browse_executable)
         exe_row.addWidget(self.executable_input, 1)
         exe_row.addWidget(self.browse_executable_button)
         self.launch_button = QPushButton("Launch Ollama with this folder")
-        self.launch_button.setIcon(app_icon("mdi6.play-outline", "#FFFFFF"))
         self.launch_button.setObjectName("PrimaryButton")
         self.launch_button.clicked.connect(self._launch_server)
         layout.addLayout(folder_row)
@@ -227,7 +216,6 @@ class SettingsPage(QWidget):
         self.speech_folder_input = QLineEdit(self.settings.speech_models_directory)
         self.speech_folder_input.setPlaceholderText("Choose a folder for Whisper model files")
         self.browse_speech_folder_button = QPushButton("Browse…")
-        self.browse_speech_folder_button.setIcon(app_icon("mdi6.folder-open-outline", "#B7BEC9"))
         self.browse_speech_folder_button.clicked.connect(self._browse_speech_folder)
         folder_row.addWidget(self.speech_folder_input, 1)
         folder_row.addWidget(self.browse_speech_folder_button)

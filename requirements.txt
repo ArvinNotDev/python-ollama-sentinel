@@ -4,5 +4,3 @@ keyring>=25.6,<26
 faster-whisper>=1.1,<2
 huggingface_hub>=0.27,<2
 tqdm>=4.66,<5
-qtawesome>=1.4.2,<2
-qt-material>=2.17,<3

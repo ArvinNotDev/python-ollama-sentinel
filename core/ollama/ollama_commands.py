@@ -62,8 +62,12 @@ class OllamaClient:
         except (requests.RequestException, ValueError) as exc:
             raise OllamaError(f"Could not inspect {model_name}: {exc}") from exc
 
-    def pull_model(self, model_name: str) -> Iterator[dict[str, Any]]:
-        """Yield progress events from Ollama's newline-delimited pull response."""
+    def pull_model(
+        self, model_name: str, cancel_event: threading.Event | None = None
+    ) -> Iterator[dict[str, Any]]:
+        """Yield Ollama pull events; closing the active response stops the current pull."""
+        if cancel_event is not None and cancel_event.is_set():
+            return
         try:
             with self.session.post(
                 self._url("/api/pull"),
@@ -71,19 +75,39 @@ class OllamaClient:
                 stream=True,
                 timeout=(10, None),
             ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines(decode_unicode=True):
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                    except (TypeError, json.JSONDecodeError) as exc:
-                        raise OllamaError("Ollama returned an invalid download progress event.") from exc
-                    self._raise_for_api_error(event)
-                    yield event
+                with self._pull_response_lock:
+                    self._pull_response = response
+                try:
+                    response.raise_for_status()
+                    for line in response.iter_lines(decode_unicode=True):
+                        if cancel_event is not None and cancel_event.is_set():
+                            return
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except (TypeError, json.JSONDecodeError) as exc:
+                            raise OllamaError("Ollama returned an invalid download progress event.") from exc
+                        self._raise_for_api_error(event)
+                        yield event
+                finally:
+                    with self._pull_response_lock:
+                        self._pull_response = None
         except requests.RequestException as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             detail = getattr(exc.response, "text", "") if getattr(exc, "response", None) else ""
             raise OllamaError(detail.strip() or f"Download failed: {exc}") from exc
+
+    def cancel_pull(self) -> None:
+        """Close the active streaming response to interrupt a pull request."""
+        with self._pull_response_lock:
+            response = self._pull_response
+        if response is not None:
+            try:
+                response.close()
+            except requests.RequestException:
+                pass
 
     def delete_model(self, model_name: str) -> None:
         try:

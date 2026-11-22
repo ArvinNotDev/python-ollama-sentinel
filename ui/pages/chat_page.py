@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QTimer, QSize
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
@@ -12,7 +12,6 @@ from core.speech.whisper_manager import WhisperModelManager
 from ui.audio_recorder import AudioRecorder
 from ui.mic_button import CircularMicButton
 from ui.workers import ChatWorker, WhisperDownloadWorker, WhisperTranscriptionWorker
-from ui.theme import app_icon
 
 
 class PromptComposer(QPlainTextEdit):
@@ -48,7 +47,7 @@ class ChatPage(QWidget):
         self.recorder.failed.connect(self._on_voice_error)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(30, 24, 30, 22)
+        root.setContentsMargins(34, 27, 34, 24)
         root.setSpacing(16)
         header = QHBoxLayout()
         heading = QVBoxLayout()
@@ -62,12 +61,9 @@ class ChatPage(QWidget):
         header.addStretch()
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(275)
-        self.model_combo.setMinimumHeight(40)
         self.model_combo.setPlaceholderText("Select a model")
         self.model_combo.currentIndexChanged.connect(self._update_model_hint)
-        self.new_chat_button = QPushButton("New chat")
-        self.new_chat_button.setIcon(app_icon("mdi6.plus", "#B7BEC9"))
-        self.new_chat_button.setIconSize(QSize(16, 16))
+        self.new_chat_button = QPushButton("＋  New chat")
         self.new_chat_button.setObjectName("GhostButton")
         self.new_chat_button.clicked.connect(self.new_chat)
         header.addWidget(self.model_combo)
@@ -89,10 +85,10 @@ class ChatPage(QWidget):
         self.welcome.setObjectName("HeroCard")
         welcome_layout = QVBoxLayout(self.welcome)
         welcome_layout.setContentsMargins(25, 22, 25, 22)
-        welcome_title = QLabel("What would you like to explore?")
+        welcome_title = QLabel("Your AI workspace")
         welcome_title.setObjectName("CardTitle")
         welcome_title.setStyleSheet("font-size: 19px;")
-        welcome_copy = QLabel("Choose a model above and start a conversation. You can also dictate a message with local Whisper speech recognition.")
+        welcome_copy = QLabel("Choose a local model or a connected API model. Use the microphone to dictate a message with local Whisper speech recognition.")
         welcome_copy.setObjectName("CardDescription")
         welcome_copy.setWordWrap(True)
         welcome_layout.addWidget(welcome_title)
@@ -107,8 +103,8 @@ class ChatPage(QWidget):
         self.composer = PromptComposer()
         self.composer.setObjectName("Composer")
         self.composer.setPlaceholderText("Message your model…  (Ctrl + Enter to send)")
-        self.composer.setMinimumHeight(88)
-        self.composer.setMaximumHeight(170)
+        self.composer.setMinimumHeight(94)
+        self.composer.setMaximumHeight(180)
         self.composer.send_requested.connect(self.send_message)
         composer_layout.addWidget(self.composer)
 
@@ -117,9 +113,7 @@ class ChatPage(QWidget):
         self.hint.setObjectName("Muted")
         self.mic_button = CircularMicButton()
         self.mic_button.clicked.connect(self._toggle_voice_input)
-        self.send_button = QPushButton("Send")
-        self.send_button.setIcon(app_icon("mdi6.arrow-up", "#FFFFFF"))
-        self.send_button.setIconSize(QSize(16, 16))
+        self.send_button = QPushButton("Send  ↑")
         self.send_button.setObjectName("PrimaryButton")
         self.send_button.clicked.connect(self.send_message)
         action_row.addWidget(self.hint, 1)
@@ -154,13 +148,12 @@ class ChatPage(QWidget):
         for model in self.local_models:
             name = model.get("name") or model.get("model")
             if name:
-                self.model_combo.addItem(app_icon("mdi6.laptop", "#AAB2C0"), f"Ollama  ·  {name}", {"source": "ollama", "model_id": str(name)})
+                self.model_combo.addItem(f"Local  ·  {name}", {"source": "ollama", "model_id": str(name)})
         for profile in self.api_profiles:
             for model in profile.get("models", []):
                 model_id = str(model.get("id", "")).strip()
                 if model_id:
                     self.model_combo.addItem(
-                        app_icon("mdi6.cloud-outline", "#AAB2C0"),
                         f"{profile.get('name', 'API')}  ·  {model.get('name') or model_id}",
                         {"source": "remote", "profile_id": profile["id"], "model_id": model_id},
                     )
