@@ -90,7 +90,7 @@ def app_icon(name: str, color: str = "#A8AFBC") -> QIcon:
     try:
         import qtawesome as qta
         return qta.icon(name, color=color)
-    except (ImportError, KeyError, ValueError, RuntimeError):
+    except Exception:
         return QIcon()
 
 
@@ -99,4 +99,4 @@ def apply_app_theme(app) -> None:
     from qt_material import apply_stylesheet
 
     apply_stylesheet(app, theme="dark_purple.xml", extra={"density_scale": "-1"})
-    app.setStyleSheet(app.styleSheet() + "\\n" + APP_STYLESHEET)
+    app.setStyleSheet(app.styleSheet() + "\n" + APP_STYLESHEET)
