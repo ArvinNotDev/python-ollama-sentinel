@@ -191,7 +191,11 @@ class MainWindow(QMainWindow):
             self.chat_history_list.addItem(item)
             if conversation.get("active"):
                 active_item = item
-        if active_item is not None:
+        if not conversations:
+            empty_item = QListWidgetItem("No saved chats yet")
+            empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.chat_history_list.addItem(empty_item)
+        elif active_item is not None:
             self.chat_history_list.setCurrentItem(active_item)
         self.chat_history_list.blockSignals(False)
 
