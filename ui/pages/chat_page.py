@@ -561,7 +561,7 @@ class ChatPage(QWidget):
             self.active_conversation["messages"] = self.history
 
     def _schedule_history_save(self) -> None:
-        if self.active_conversation is not None:
+        if self.active_conversation is not None and not self._history_save_timer.isActive():
             self._history_save_timer.start()
 
     def _persist_current_conversation(self) -> None:
