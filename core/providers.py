@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Iterator
 from urllib.parse import quote
 
@@ -59,6 +60,8 @@ class RemoteProviderClient:
         self.api_key = api_key.strip()
         self.timeout = timeout
         self.session = session or requests.Session()
+        self._response_lock = threading.Lock()
+        self._active_response: requests.Response | None = None
         if not self.base_url.startswith(("http://", "https://")):
             raise ProviderError("Provider URL must start with http:// or https://.")
         if defaults["requires_key"] and not self.api_key:
@@ -88,19 +91,48 @@ class RemoteProviderClient:
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         headers = self._headers()
         headers.update(kwargs.pop("headers", {}))
+        is_stream = bool(kwargs.get("stream"))
         try:
             response = self.session.request(
                 method, f"{self.base_url}{path}", headers=headers,
                 timeout=kwargs.pop("timeout", self.timeout), **kwargs,
             )
+            if is_stream:
+                with self._response_lock:
+                    self._active_response = response
             if not response.ok:
                 detail = self._decode_error(response)
+                if is_stream:
+                    self._release_response(response)
+                response.close()
                 raise ProviderError(detail or f"Provider returned HTTP {response.status_code}.")
             return response
         except requests.RequestException as exc:
             response = getattr(exc, "response", None)
             detail = self._decode_error(response) if response is not None else ""
             raise ProviderError(detail or f"Could not reach the provider: {exc}") from exc
+
+    def _release_response(self, response: requests.Response) -> None:
+        with self._response_lock:
+            if self._active_response is response:
+                self._active_response = None
+
+    def _stream_events(self, response: requests.Response, cancel_event=None) -> Iterator[dict[str, Any]]:
+        try:
+            with response:
+                yield from self._sse_data(response, cancel_event)
+        finally:
+            self._release_response(response)
+
+    def cancel_chat(self) -> None:
+        """Close the active provider stream so a running generation can stop."""
+        with self._response_lock:
+            response = self._active_response
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     def list_models(self) -> list[dict[str, str]]:
         path = "/v1/models" if self.protocol == "anthropic" else "/models"
@@ -127,8 +159,10 @@ class RemoteProviderClient:
         return models
 
     @staticmethod
-    def _sse_data(response: requests.Response) -> Iterator[dict[str, Any]]:
+    def _sse_data(response: requests.Response, cancel_event=None) -> Iterator[dict[str, Any]]:
         for raw_line in response.iter_lines(decode_unicode=True):
+            if cancel_event is not None and cancel_event.is_set():
+                return
             if not raw_line:
                 continue
             line = raw_line.decode("utf-8", errors="replace") if isinstance(raw_line, bytes) else raw_line
@@ -150,13 +184,19 @@ class RemoteProviderClient:
                     raise ProviderError(str(error))
                 yield event
 
-    def chat_stream(self, model: str, messages: list[dict[str, Any]], temperature: float = 0.7) -> Iterator[str]:
+    def chat_stream(
+        self, model: str, messages: list[dict[str, Any]], temperature: float = 0.7,
+        cancel_event=None,
+    ) -> Iterator[str]:
+        """Stream provider output and stop promptly when cancellation is requested."""
+        if cancel_event is not None and cancel_event.is_set():
+            return
         if self.protocol == "anthropic":
-            yield from self._chat_anthropic(model, messages, temperature)
+            yield from self._chat_anthropic(model, messages, temperature, cancel_event)
         elif self.protocol == "gemini":
-            yield from self._chat_gemini(model, messages, temperature)
+            yield from self._chat_gemini(model, messages, temperature, cancel_event)
         else:
-            yield from self._chat_openai(model, messages, temperature)
+            yield from self._chat_openai(model, messages, temperature, cancel_event)
 
     @staticmethod
     def _openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -183,15 +223,16 @@ class RemoteProviderClient:
             result.append(item)
         return result
 
-    def _chat_openai(self, model: str, messages: list[dict[str, Any]], temperature: float) -> Iterator[str]:
+    def _chat_openai(
+        self, model: str, messages: list[dict[str, Any]], temperature: float, cancel_event=None,
+    ) -> Iterator[str]:
         response = self._request(
             "POST", "/chat/completions",
             json={"model": model, "messages": self._openai_messages(messages), "temperature": temperature, "stream": True},
             stream=True, timeout=(10, None), headers={"Content-Type": "application/json"},
         )
-        with response:
-            for event in self._sse_data(response):
-                for choice in event.get("choices") or []:
+        for event in self._stream_events(response, cancel_event):
+            for choice in event.get("choices") or []:
                     content = (choice.get("delta") or {}).get("content")
                     if isinstance(content, str) and content:
                         yield content
@@ -200,7 +241,9 @@ class RemoteProviderClient:
                             if isinstance(part, dict) and isinstance(part.get("text"), str):
                                 yield part["text"]
 
-    def _chat_anthropic(self, model: str, messages: list[dict[str, Any]], temperature: float) -> Iterator[str]:
+    def _chat_anthropic(
+        self, model: str, messages: list[dict[str, Any]], temperature: float, cancel_event=None,
+    ) -> Iterator[str]:
         system_parts = [item["content"] for item in messages if item.get("role") == "system"]
         conversation = []
         for item in messages:
@@ -231,14 +274,15 @@ class RemoteProviderClient:
             "POST", "/v1/messages", json=body, stream=True, timeout=(10, None),
             headers={"Content-Type": "application/json"},
         )
-        with response:
-            for event in self._sse_data(response):
-                if event.get("type") == "content_block_delta":
+        for event in self._stream_events(response, cancel_event):
+            if event.get("type") == "content_block_delta":
                     delta = event.get("delta") or {}
                     if delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
                         yield delta["text"]
 
-    def _chat_gemini(self, model: str, messages: list[dict[str, Any]], temperature: float) -> Iterator[str]:
+    def _chat_gemini(
+        self, model: str, messages: list[dict[str, Any]], temperature: float, cancel_event=None,
+    ) -> Iterator[str]:
         system_parts = [item["content"] for item in messages if item.get("role") == "system"]
         conversation = []
         for item in messages:
@@ -266,13 +310,13 @@ class RemoteProviderClient:
             json=body, stream=True, timeout=(10, None),
             headers={"Content-Type": "application/json"},
         )
-        with response:
-            for event in self._sse_data(response):
-                for candidate in event.get("candidates") or []:
+        for event in self._stream_events(response, cancel_event):
+            for candidate in event.get("candidates") or []:
                     content = candidate.get("content") or {}
                     for part in content.get("parts") or []:
                         if isinstance(part.get("text"), str):
                             yield part["text"]
 
     def close(self) -> None:
+        self.cancel_chat()
         self.session.close()
