@@ -235,7 +235,19 @@ class MoveOllamaModelsWorker(QThread):
                     raise RuntimeError(
                         "Ollama is still running. Stop the local Ollama server completely, then retry Move Models."
                     )
-            destination = move_model_directory(self.source, self.destination)
+            source_path = Path(self.source).expanduser()
+            destination_path = Path(self.destination).expanduser()
+            if not source_path.exists():
+                if destination_path.exists():
+                    if not destination_path.is_dir() or any(destination_path.iterdir()):
+                        raise FileExistsError(
+                            f"The destination must be a new or empty folder: {destination_path}"
+                        )
+                else:
+                    destination_path.mkdir(parents=True, exist_ok=True)
+                destination = destination_path.resolve()
+            else:
+                destination = move_model_directory(source_path, destination_path)
             self.completed.emit(str(destination))
         except Exception as exc:
             self.failed.emit(str(exc))
