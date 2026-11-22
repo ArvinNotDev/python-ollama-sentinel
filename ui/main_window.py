@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, Qt, QTimer, QSize
 from PySide6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMainWindow, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QAbstractItemView, QMainWindow, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from core.ollama.process_manager import OllamaProcessManager
@@ -77,12 +77,11 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(history_label)
         self.chat_history_list = QListWidget()
         self.chat_history_list.setObjectName("ChatHistoryList")
-        self.chat_history_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.chat_history_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.chat_history_list.setSpacing(3)
         self.chat_history_list.itemClicked.connect(self._open_chat_from_sidebar)
         sidebar_layout.addWidget(self.chat_history_list, 1)
 
-        sidebar_layout.addStretch(1)
         server_card = QFrame()
         server_card.setObjectName("ServerCard")
         server_layout = QVBoxLayout(server_card)
