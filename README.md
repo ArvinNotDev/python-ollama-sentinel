@@ -8,6 +8,8 @@ A polished desktop workspace for local Ollama models and remote AI API providers
 
 - Local Ollama model discovery, pull progress, installed model library and model removal.
 - Chat with local Ollama models or connected remote API models from one model selector.
+- Persistent multi-conversation history, including complete message order, image attachments, document text and available model reasoning output; conversations are saved locally and restored on next launch.
+- Horizontal workspace tabs with a dedicated left-side chat history, a compact capsule model picker beside the attachment button, and vertically stacked message bubbles.
 - Vision input for compatible models, with automatic Ollama capability detection and image forwarding to supported remote APIs.
 - Attach images or documents directly to Chat, with drag-and-drop, removable attachment chips and conversation history support.
 - Think toggle with a brain icon; local Ollama models expose only the boolean or named reasoning levels reported by `/api/show`, and streamed thinking output is shown separately from the answer.
