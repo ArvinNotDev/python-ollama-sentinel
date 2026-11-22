@@ -85,8 +85,8 @@ class ModelVariantCard(QFrame):
 
         badges = QHBoxLayout()
         badges.setSpacing(6)
-        size_match = re.search(r"(?i)(?:^|-)(\\d+(?:\\.\\d+)?[bm])(?:-|$)", tag)
-        quant_match = re.search(r"(?i)(?:^|-)((?:i?q\\d+_[a-z0-9_]+)|fp16|bf16|f16)(?:-|$)", tag)
+        size_match = re.search(r"(?i)(?:^|-)(\d+(?:\.\d+)?[bm])(?:-|$)", tag)
+        quant_match = re.search(r"(?i)(?:^|-)((?:i?q\d+_[a-z0-9_]+)|fp16|bf16|f16)(?:-|$)", tag)
         badge_values = []
         if size_match:
             badge_values.append(size_match.group(1).upper())
