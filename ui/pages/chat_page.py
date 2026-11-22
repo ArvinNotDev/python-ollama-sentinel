@@ -1194,7 +1194,11 @@ class ChatPage(QWidget):
         self.send_button.setEnabled(self.model_combo.count() > 0)
         self.attach_button.setEnabled(True)
         self.think_button.setEnabled(self._think_supported and not self._think_required)
-        self.think_level_combo.setEnabled(self._think_supported and self._think_mode == "levels")
+        self.think_level_combo.setEnabled(
+            self._think_supported
+            and self._think_mode == "levels"
+            and self.think_button.isChecked()
+        )
         self.composer.setFocus()
         self.save_current_conversation()
         self.worker = None
