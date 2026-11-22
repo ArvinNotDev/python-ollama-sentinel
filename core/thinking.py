@@ -30,6 +30,8 @@ def resolve_thinking_controls(model_details: dict[str, Any]) -> ThinkingControls
     }
     metadata = model_details.get("thinking")
     raw_values = metadata.get("values", []) if isinstance(metadata, dict) else []
+    if not isinstance(raw_values, (list, tuple)):
+        raw_values = []
     values = tuple(
         value for value in raw_values
         if isinstance(value, bool) or (isinstance(value, str) and bool(value.strip()))
