@@ -104,7 +104,9 @@ class RemoteProviderClient:
                 detail = self._decode_error(response)
                 if is_stream:
                     self._release_response(response)
-                response.close()
+                close_response = getattr(response, "close", None)
+                if close_response is not None:
+                    close_response()
                 raise ProviderError(detail or f"Provider returned HTTP {response.status_code}.")
             return response
         except requests.RequestException as exc:
@@ -119,6 +121,9 @@ class RemoteProviderClient:
 
     def _stream_events(self, response: requests.Response, cancel_event=None) -> Iterator[dict[str, Any]]:
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                response.close()
+                return
             with response:
                 yield from self._sse_data(response, cancel_event)
         finally:
@@ -233,13 +238,13 @@ class RemoteProviderClient:
         )
         for event in self._stream_events(response, cancel_event):
             for choice in event.get("choices") or []:
-                    content = (choice.get("delta") or {}).get("content")
-                    if isinstance(content, str) and content:
-                        yield content
-                    elif isinstance(content, list):
-                        for part in content:
-                            if isinstance(part, dict) and isinstance(part.get("text"), str):
-                                yield part["text"]
+                content = (choice.get("delta") or {}).get("content")
+                if isinstance(content, str) and content:
+                    yield content
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            yield part["text"]
 
     def _chat_anthropic(
         self, model: str, messages: list[dict[str, Any]], temperature: float, cancel_event=None,
@@ -276,9 +281,9 @@ class RemoteProviderClient:
         )
         for event in self._stream_events(response, cancel_event):
             if event.get("type") == "content_block_delta":
-                    delta = event.get("delta") or {}
-                    if delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
-                        yield delta["text"]
+                delta = event.get("delta") or {}
+                if delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
+                    yield delta["text"]
 
     def _chat_gemini(
         self, model: str, messages: list[dict[str, Any]], temperature: float, cancel_event=None,
@@ -312,10 +317,10 @@ class RemoteProviderClient:
         )
         for event in self._stream_events(response, cancel_event):
             for candidate in event.get("candidates") or []:
-                    content = candidate.get("content") or {}
-                    for part in content.get("parts") or []:
-                        if isinstance(part.get("text"), str):
-                            yield part["text"]
+                content = candidate.get("content") or {}
+                for part in content.get("parts") or []:
+                    if isinstance(part.get("text"), str):
+                        yield part["text"]
 
     def close(self) -> None:
         self.cancel_chat()
