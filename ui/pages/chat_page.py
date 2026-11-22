@@ -419,6 +419,13 @@ class ChatPage(QWidget):
         )
         self.think_button.setText("Think")
         self.think_button.setEnabled(self._think_supported and not self._think_required)
+        if not self._think_supported:
+            think_icon_color = "#58616F"
+        elif self.think_button.isChecked():
+            think_icon_color = "#AFC6EA"
+        else:
+            think_icon_color = "#C0C6D0"
+        self.think_button.setIcon(app_icon("mdi6.brain", think_icon_color))
         self.think_button.setProperty("thinkAvailable", self._think_supported)
         self.think_button.setProperty("thinkRequired", self._think_required)
         self.think_button.style().unpolish(self.think_button)
@@ -1015,6 +1022,9 @@ class ChatPage(QWidget):
         self.think_level_combo.setVisible(show_levels)
         self.think_level_combo.setEnabled(show_levels)
         self.think_button.setText("Think")
+        self.think_button.setIcon(
+            app_icon("mdi6.brain", "#AFC6EA" if enabled else "#C0C6D0")
+        )
         self.think_button.setToolTip(
             "Model reasoning is enabled for this request."
             if enabled else "Model reasoning is disabled for this request."
