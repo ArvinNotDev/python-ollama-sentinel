@@ -148,6 +148,7 @@ class SettingsPage(QWidget):
         self.test_provider_button = QPushButton("Test connection")
         self.test_provider_button.setIcon(app_icon("mdi6.lan-connect", "#B7BEC9"))
         self.test_provider_button.clicked.connect(self._fetch_provider_models)
+        self.save_provider_button = QPushButton("Save connection")
         self.save_provider_button.setIcon(app_icon("mdi6.content-save-outline", "#FFFFFF"))
         self.save_provider_button.setObjectName("PrimaryButton")
         self.save_provider_button.clicked.connect(self._save_provider)
