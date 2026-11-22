@@ -1,72 +1,88 @@
 # Ollama Sentinel
 
-A polished desktop workspace for running and managing local Ollama models. Ollama Sentinel brings model discovery, downloads with live progress, a local chat workspace and storage settings into one PySide6 application.
+A polished desktop workspace for local Ollama models and remote AI API providers. Built with PySide6, Ollama's streaming API and provider-specific adapters.
 
-**Current scope:** model management and local chat are implemented. Agentic workflows, tools, autonomous task execution and project agents are intentionally not part of this release; the code is organized so those capabilities can be introduced as a separate layer later.
+**Current scope:** local model discovery/download, streaming local chat, saved remote API connections and streaming remote chat. Agentic workflows, tools, autonomous task execution and project agents are intentionally not part of this release.
 
-## What is included
+## Features
 
-- **Local chat:** choose any installed model, stream responses as they are generated, keep conversation context and start a fresh chat at any time.
-- **Model discovery:** browse a curated set of starting models or enter any model name or tag from the [Ollama Library](https://ollama.com/library).
-- **Real download progress:** pull models through Ollama's streaming API and see progress, downloaded bytes, status and multiple simultaneous downloads.
-- **Model library:** refresh the models installed on the connected Ollama server, inspect storage size and remove models you no longer need.
-- **Storage location:** choose the directory Ollama should use for model files and optionally launch the Ollama server from the app with that directory.
-- **Connection settings:** connect to the default local server or another Ollama HTTP endpoint.
-- **Modern desktop UI:** rounded surfaces, a focused sidebar, dark theme, clear hierarchy, subtle page transitions and responsive page layouts.
+- Local Ollama model discovery, pull progress, installed model library and model removal.
+- Chat with local Ollama models or connected remote API models from one model selector.
+- Multiple saved API connections: OpenAI, Anthropic (Claude), Google (Gemini) and OpenAI-compatible endpoints.
+- Fetch provider model lists or enter model IDs manually.
+- Test provider connectivity before using a connection.
+- Stream responses from OpenAI-compatible Chat Completions, Anthropic Messages and Gemini generate-content APIs.
+- API keys stored in the operating system credential manager through Python Keyring. Secrets are not written to settings.json.
+- Rounded dark desktop UI, sidebar navigation, provider settings and responsive settings page.
+- Choose the model folder used by an Ollama server launched from the app.
+
+## Supported providers
+
+| Provider | API protocol | Default base URL |
+|---|---|---|
+| OpenAI | Chat Completions | https://api.openai.com/v1 |
+| Anthropic / Claude | Messages API | https://api.anthropic.com |
+| Google / Gemini | Gemini generateContent | https://generativelanguage.googleapis.com/v1beta |
+| OpenAI-compatible | Chat Completions | User-defined |
+
+The OpenAI-compatible option can connect to services that expose the compatible /models and /chat/completions endpoints, such as OpenRouter, Groq, Together, vLLM, LM Studio and many hosted inference gateways. Provider compatibility varies; a model ID can always be entered manually if a service does not expose model discovery.
+
+## API keys and subscriptions
+
+Create API credentials with the provider and add them under **Settings → AI API providers**. API keys are stored in the OS credential manager (Windows Credential Manager, macOS Keychain or a supported Linux Secret Service); only the connection metadata and model IDs are stored in the application's JSON settings file.
+
+A provider API key is not the same thing as a consumer ChatGPT/Codex or Claude Pro/Max subscription login. API usage is billed and rate-limited separately according to the provider account. This application currently supports API-key authentication, not OAuth sign-in to consumer subscriptions.
+
+For cloud models, prompts and conversation history are sent to the selected provider. Review the provider's privacy and retention terms before sending sensitive information. Local Ollama models continue to run through the configured Ollama server.
 
 ## Requirements
 
 - Python 3.10 or newer
-- [Ollama](https://ollama.com/download) installed on the machine that hosts the models
+- Ollama installed for local models
+- An API key for each cloud provider that requires authentication
 - Windows, macOS or Linux desktop environment
 
 ## Run from source
 
-1. Create a virtual environment with: python -m venv .venv
+1. Create a virtual environment: python -m venv .venv
 2. Activate it:
    - Windows: .venv\Scripts\activate
    - macOS/Linux: source .venv/bin/activate
 3. Install dependencies: pip install -r requirements.txt
-4. Start the application: python main.py
+4. Start: python main.py
+
+## Add an API provider
+
+1. Open **Settings → AI API providers**.
+2. Select OpenAI, Anthropic · Claude, Google · Gemini or OpenAI-compatible.
+3. Give the connection a name, check the base URL and paste the API key (not needed for compatible endpoints that do not require authentication).
+4. Save the connection, then use **Fetch models** to retrieve the available model IDs. You can also add model IDs manually, one per line.
+5. Return to Chat and select the model from the dropdown. Connected providers are shown alongside local Ollama models.
+
+Each saved connection can have its own base URL and model list. Add multiple profiles for separate accounts, gateways or local compatible servers.
 
 ## Model storage location
 
-Ollama itself owns model storage. The application configures the OLLAMA_MODELS environment variable when it launches an Ollama server; the setting is not a client-side download path.
+Ollama owns its model storage. Sentinel configures OLLAMA_MODELS only when it launches an Ollama server itself:
 
 1. Open Settings → Model storage and choose a folder.
-2. Save the settings.
-3. If Ollama is already running in the system tray or as a service, stop that existing server first.
-4. Use **Launch Ollama with this folder**. Sentinel starts the Ollama server with OLLAMA_MODELS set to the selected directory.
+2. Save settings.
+3. Stop any already-running Ollama desktop app or service.
+4. Use **Launch Ollama with this folder**.
 
-When an Ollama server is already responding at the configured address, Sentinel will not start a second server or silently change its storage directory. In that case, the existing server keeps its own configuration. You can also configure OLLAMA_MODELS in your operating system environment and restart Ollama normally.
-
-The default connection is http://127.0.0.1:11434. A custom endpoint can be configured in Settings.
-
-## Downloading models
-
-The Discover page includes a few useful starting points. To download another model, enter its exact library name or tag in the custom model field, for example:
-
-- qwen3:8b
-- llama3.2:3b
-- qwen2.5-coder:7b
-
-Model names and available tags can change. Check the [Ollama Library](https://ollama.com/library) for the current names and variants. Downloads are performed by the configured Ollama server, not by a separate downloader in this application.
+An already-running server is not silently reconfigured. The selected folder is applied to the app-managed local server only; cloud provider models are not downloaded or stored locally by Sentinel.
 
 ## Project structure
 
-- core/ollama/ollama_commands.py — Ollama HTTP API client for chat, pull, tags and delete
-- core/ollama/process_manager.py — optional app-managed Ollama server
-- core/settings.py — persistent application settings
+- core/ollama/ — local Ollama REST API and process manager
+- core/providers.py — remote provider adapters and streaming protocols
+- core/secrets.py — OS credential store integration
+- core/settings.py — persistent application settings and provider profiles
 - ui/main_window.py — navigation shell and application coordination
-- ui/theme.py — shared visual system
-- ui/workers.py — background API workers
-- ui/pages/chat_page.py — streaming local chat
-- ui/pages/models_page.py — discovery, downloads and installed models
-- ui/pages/settings_page.py — connection and storage settings
-
-## Privacy
-
-Prompts and chat history are sent to the Ollama endpoint configured in the application. When connected to a local Ollama server, inference runs locally. If you configure a remote endpoint, requests are sent to that server. Model downloads require network access to the Ollama registry.
+- ui/workers.py — background API, pull and chat workers
+- ui/pages/chat_page.py — unified local/cloud model chat
+- ui/pages/models_page.py — local model discovery and downloads
+- ui/pages/settings_page.py — provider, connection and storage settings
 
 ## Roadmap
 

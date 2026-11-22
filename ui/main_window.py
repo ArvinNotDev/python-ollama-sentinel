@@ -100,7 +100,9 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(topbar)
 
         self.stack = QStackedWidget()
-        self.chat_page = ChatPage(self.settings.endpoint, float(self.settings.get("temperature", 0.7)))
+        self.chat_page = ChatPage(
+            self.settings.endpoint, float(self.settings.get("temperature", 0.7)), settings=self.settings
+        )
         self.models_page = ModelsPage(self.settings.endpoint)
         self.settings_page = SettingsPage(self.settings)
         self.stack.addWidget(self.chat_page)
@@ -115,7 +117,9 @@ class MainWindow(QMainWindow):
         self.models_page.status_message.connect(self._show_status)
         self.settings_page.status_message.connect(self._show_status)
         self.settings_page.settings_changed.connect(self._settings_updated)
+        self.settings_page.api_profiles_changed.connect(self._api_profiles_updated)
         self.settings_page.launch_server_requested.connect(self._launch_managed_server)
+        self.chat_page.set_remote_profiles(self.settings.list_api_profiles())
         self.navigate(0)
         QTimer.singleShot(250, self.models_page.refresh_models)
 
@@ -146,6 +150,9 @@ class MainWindow(QMainWindow):
         self.chat_page.set_models(models)
         count = len(models)
         self.model_count.setText(f"Model library · {count} model{'s' if count != 1 else ''}")
+
+    def _api_profiles_updated(self, profiles: list[dict]) -> None:
+        self.chat_page.set_remote_profiles(profiles)
 
     def _connection_updated(self, connected: bool) -> None:
         self.server_status.setText("●  Connected" if connected else "●  Not connected")
