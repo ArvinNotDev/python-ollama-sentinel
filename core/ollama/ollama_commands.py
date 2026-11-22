@@ -21,6 +21,8 @@ class OllamaClient:
         self.session = requests.Session()
         self._pull_response: requests.Response | None = None
         self._pull_response_lock = threading.Lock()
+        self._chat_response: requests.Response | None = None
+        self._chat_response_lock = threading.Lock()
         try:
             parsed = urlparse(self.base_url)
             valid_host = bool(parsed.hostname)
@@ -127,18 +129,31 @@ class OllamaClient:
         messages: list[dict[str, Any]],
         options: dict[str, Any] | None = None,
         think: bool | str | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> Iterator[dict[str, Any]]:
+        """Stream chat events and close the active HTTP response when cancelled."""
+        if cancel_event is not None and cancel_event.is_set():
+            return
         body: dict[str, Any] = {"model": model_name, "messages": messages, "stream": True}
         if options:
             body["options"] = options
         if think is not None:
             body["think"] = think
+        response: requests.Response | None = None
         try:
-            with self.session.post(
+            response = self.session.post(
                 self._url("/api/chat"), json=body, stream=True, timeout=(10, None)
-            ) as response:
+            )
+            with self._chat_response_lock:
+                self._chat_response = response
+            if cancel_event is not None and cancel_event.is_set():
+                response.close()
+                return
+            with response:
                 response.raise_for_status()
                 for line in response.iter_lines(decode_unicode=True):
+                    if cancel_event is not None and cancel_event.is_set():
+                        return
                     if not line:
                         continue
                     try:
@@ -148,10 +163,28 @@ class OllamaClient:
                     self._raise_for_api_error(event)
                     yield event
         except requests.RequestException as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             detail = getattr(exc.response, "text", "") if getattr(exc, "response", None) else ""
             raise OllamaError(detail.strip() or f"Could not generate a response: {exc}") from exc
+        finally:
+            if response is not None:
+                with self._chat_response_lock:
+                    if self._chat_response is response:
+                        self._chat_response = None
+
+    def cancel_chat(self) -> None:
+        """Close the active chat response to interrupt a streaming request."""
+        with self._chat_response_lock:
+            response = self._chat_response
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     def close(self) -> None:
+        self.cancel_chat()
         self.session.close()
 
 
